@@ -1,0 +1,14 @@
+{
+  "models": [
+    {
+      "slug": "deepseek-v4-flash",
+      "display_name": "DeepSeek V4 Flash",
+      "context_window": 128000,
+      "effective_context_window_percent": 95,
+      "auto_compact_token_limit": 110000,
+      "tool_mode": "direct",
+      "supports_search_tool": false,
+      "use_responses_lite": false
+    }
+  ]
+}

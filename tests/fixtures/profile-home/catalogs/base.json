@@ -1,0 +1,13 @@
+{
+  "models": [
+    {
+      "slug": "base-model",
+      "context_window": 32000,
+      "effective_context_window_percent": 90,
+      "auto_compact_token_limit": 24000,
+      "tool_mode": "direct",
+      "supports_search_tool": true,
+      "use_responses_lite": false
+    }
+  ]
+}

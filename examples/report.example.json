@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "effective": {
+    "model": "vendor-model-v1",
+    "model_provider": "thirdparty",
+    "model_catalog_json": "/sanitized/codex-home/catalogs/vendor-models.release.json",
+    "web_search": "disabled",
+    "origins": {
+      "model": "/sanitized/codex-home/config.toml",
+      "model_provider": "/sanitized/codex-home/config.toml",
+      "model_catalog_json": "/sanitized/codex-home/config.toml"
+    }
+  },
+  "provider": {
+    "id": "thirdparty",
+    "exists": true,
+    "name": "Sanitized third-party example",
+    "host": "api.example.invalid",
+    "wire_api": "responses",
+    "requires_openai_auth": false,
+    "env_key": "THIRD_PARTY_API_KEY",
+    "env_key_is_set": true,
+    "auth_command_configured": false,
+    "direct_bearer_token_configured": false
+  },
+  "history": {
+    "probe": "ok",
+    "database_path": "$CODEX_HOME/session-index.local.db",
+    "database_read_only": true,
+    "current_provider": "thirdparty",
+    "threads_total": 12,
+    "threads_current_provider": 10,
+    "threads_other_providers": 2,
+    "active_threads_other_providers": 2
+  },
+  "summary": {
+    "status": "warning",
+    "errors": 0,
+    "warnings": 1
+  }
+}

@@ -1,0 +1,10 @@
+model = "base-model"
+model_provider = "thirdparty"
+model_catalog_json = "catalogs/base.json"
+cli_auth_credentials_store = "keyring"
+
+[model_providers.thirdparty]
+name = "Third-party example"
+base_url = "https://api.example.invalid/v1"
+wire_api = "responses"
+env_key = "DEEPSEEK_API_KEY"

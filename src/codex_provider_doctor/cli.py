@@ -1,0 +1,162 @@
+from __future__ import annotations
+
+import argparse
+import json
+import os
+from pathlib import Path
+import shutil
+import sys
+
+from codex_provider_doctor.config import resolve_configuration
+from codex_provider_doctor.diagnostics import (
+    auth_report,
+    compact_report,
+    compatibility_report,
+    history_report,
+    inspect_catalog,
+    plugins_report,
+    provider_report,
+    runtime_report,
+)
+from codex_provider_doctor.report import (
+    localize_report,
+    manual_checks,
+    render_human,
+    report_origins,
+)
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="codex-provider-doctor")
+    parser.add_argument("--codex-home", type=Path)
+    parser.add_argument("--profile")
+    parser.add_argument("--cwd", type=Path, default=Path.cwd())
+    parser.add_argument("--system-config", type=Path, default=Path("/etc/codex/config.toml"))
+    parser.add_argument(
+        "--compat-rule",
+        choices=["deepseek-direct-tools-2026-08-03"],
+        action="append",
+        default=[],
+    )
+    parser.add_argument("--no-command-checks", action="store_true")
+    parser.add_argument("-c", "--config", dest="config_overrides", action="append", default=[])
+    parser.add_argument("--lang", choices=["zh-CN", "en"], default="zh-CN")
+    parser.add_argument("--json", action="store_true")
+    return parser
+
+
+def _execute(args: argparse.Namespace) -> int:
+    codex_home = (
+        args.codex_home or Path(os.environ.get("CODEX_HOME", "~/.codex"))
+    ).expanduser().resolve()
+    working_directory = args.cwd.expanduser().resolve()
+    resolution = resolve_configuration(
+        codex_home=codex_home,
+        working_directory=working_directory,
+        system_config=args.system_config,
+        profile=args.profile,
+        overrides=args.config_overrides,
+    )
+    config = resolution.values
+    findings = list(resolution.findings)
+
+    catalog, catalog_path, selected_model = inspect_catalog(
+        config,
+        resolution.origins,
+        working_directory,
+        findings,
+    )
+    provider = provider_report(config, findings)
+    command_checks = not args.no_command_checks
+    codex_binary = shutil.which("codex") if command_checks else None
+    runtime = runtime_report(command_checks, codex_binary, findings)
+    compatibility = compatibility_report(
+        args.compat_rule,
+        selected_model,
+        provider,
+        runtime["codex_version"],
+        findings,
+    )
+    compact = compact_report(
+        config,
+        resolution.origins,
+        selected_model,
+        catalog_path,
+        findings,
+    )
+    auth = auth_report(config, codex_home, command_checks, codex_binary, findings)
+    plugins = plugins_report(config, command_checks, codex_binary, findings)
+    history = history_report(config, codex_home, findings)
+
+    error_count = sum(item["severity"] == "error" for item in findings)
+    warning_count = sum(item["severity"] == "warning" for item in findings)
+    status = "error" if error_count else "warning" if warning_count else "ok"
+    report = {
+        "schema_version": 1,
+        "effective": {
+            "model": config.get("model"),
+            "model_provider": config.get("model_provider", "openai"),
+            "model_catalog_json": str(catalog_path) if catalog_path else None,
+            "web_search": config.get("web_search"),
+            "origins": report_origins(config, resolution.origins),
+        },
+        "catalog": catalog,
+        "provider": provider,
+        "compatibility": compatibility,
+        "auth": auth,
+        "plugins": plugins,
+        "runtime": runtime,
+        "compact": compact,
+        "history": history,
+        "layers": resolution.layers,
+        "project": resolution.project,
+        "manual_checks": manual_checks(),
+        "findings": findings,
+        "summary": {"status": status, "errors": error_count, "warnings": warning_count},
+    }
+
+    report = localize_report(report, args.lang)
+    if args.json:
+        json.dump(report, sys.stdout, ensure_ascii=False, indent=2)
+        sys.stdout.write("\n")
+    else:
+        sys.stdout.write(render_human(report, args.lang))
+    if error_count:
+        return 2
+    if warning_count:
+        return 1
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    try:
+        return _execute(args)
+    except Exception:
+        message = (
+            "The doctor could not finish safely. Error details were hidden; check arguments, file permissions, and file formats."
+            if args.lang == "en"
+            else "诊断工具未能安全完成；异常细节已隐藏，请检查参数、文件权限和文件格式。"
+        )
+        if args.json:
+            json.dump(
+                {
+                    "schema_version": 1,
+                    "summary": {
+                        "status": "tool_error",
+                        "errors": 0,
+                        "warnings": 0,
+                    },
+                    "tool_error": {
+                        "code": "doctor.internal_failure",
+                        "message": message,
+                    },
+                },
+                sys.stdout,
+                ensure_ascii=False,
+                indent=2,
+            )
+            sys.stdout.write("\n")
+        else:
+            sys.stderr.write(f"Codex Provider Doctor\n\n{message}\n")
+        return 3

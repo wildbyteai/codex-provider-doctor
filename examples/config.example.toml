@@ -1,0 +1,14 @@
+model = "vendor-model-v1"
+model_provider = "thirdparty"
+model_catalog_json = "catalogs/vendor-models.release.json"
+web_search = "disabled"
+
+[model_providers.thirdparty]
+name = "Sanitized third-party example"
+base_url = "https://api.example.invalid/v1"
+wire_api = "responses"
+env_key = "THIRD_PARTY_API_KEY"
+
+[features]
+apps = true
+remote_plugin = true
