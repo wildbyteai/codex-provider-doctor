@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Installable Codex Skill metadata with implicit natural-language invocation.
+- A bundled Skill runner that uses the repository source without global package installation.
+- Skill entry-point tests and natural-language installation instructions.
+
 ## [0.1.0] - 2026-08-04
 
 ### Added

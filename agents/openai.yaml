@@ -1,0 +1,7 @@
+interface:
+  display_name: "Codex Provider Doctor"
+  short_description: "只读排查 Codex 第三方模型、认证、Chrome 与历史任务"
+  default_prompt: "使用 $codex-provider-doctor 对当前 Codex 第三方 Provider 做一次完整的只读诊断，并用中文解释结果。"
+
+policy:
+  allow_implicit_invocation: true

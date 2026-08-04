@@ -15,6 +15,24 @@
 
 当前版本只检测、解释、给出建议，不自动修改任何文件或数据库。
 
+## 使用 Skill（推荐）
+
+普通用户不需要打开终端执行诊断命令。直接对 Codex 说：
+
+```text
+使用 $skill-installer，从 GitHub 仓库 wildbyteai/codex-provider-doctor 的根目录（path `.`）安装，并命名为 codex-provider-doctor。
+```
+
+安装完成后新建一个任务；如果技能列表没有刷新，再重启 Codex。然后说：
+
+```text
+使用 $codex-provider-doctor 检查我接入第三方 API 后，Skill、模型名称、Chrome 插件和历史任务是否正常。
+```
+
+也可以直接用自然语言描述上述问题，由 Codex 根据触发描述加载 Skill；显式写 `$codex-provider-doctor` 最可靠。Agent 会自己运行仓库内置的只读检测入口，再用中文解释结果；不需要用户复制 `codex-provider-doctor` 命令。
+
+Skill 和命令行工具使用同一套诊断代码。Skill 不会全局安装 Python 包，不会创建虚拟环境，也不会在诊断阶段修改配置或数据库。当前仍需要本机存在 Python 3.11 或更高版本。
+
 ## 它会检查什么
 
 - Codex 到底加载了哪一层配置：系统、用户、Profile、可信项目，还是命令行覆盖。
@@ -41,7 +59,7 @@
 2. 第三方 API 怎么认证：看活动 `[model_providers.<id>]`。
 3. Chrome、插件、连接器或 MCP 是否安装、开启并完成授权。
 
-## 安装
+## 命令行工具（可选）
 
 需要 Python 3.11 或更高版本。
 
@@ -61,7 +79,7 @@ python -m venv .venv
 python -m pip install -e .
 ```
 
-## 运行
+### 运行命令行工具
 
 直接检测：
 
@@ -118,9 +136,9 @@ codex doctor
 
 然后再用本工具检查第三方 Provider 的模型目录解析、兼容字段、Chrome/插件和历史 Provider 绑定。
 
-## 给 Agent 的完整指令
+## 没有安装 Skill 时的备用提示词
 
-如果你不熟悉文件和命令，直接把 [这段诊断指令](prompts/agent-doctor.zh-CN.md) 发给 Codex。它要求 Agent 先只读检查、自己定位实际文件名和相对路径，并明确禁止读取 `auth.json` 或修改数据库。
+如果暂时无法安装 Skill，可以把 [这段诊断指令](prompts/agent-doctor.zh-CN.md) 发给 Codex。它要求 Agent 先只读检查、自己定位实际文件名和相对路径，并明确禁止读取 `auth.json` 或修改数据库。
 
 ## 隐私
 
@@ -135,7 +153,7 @@ codex doctor
 
 ```shell
 python3 -m unittest discover -s tests -v
-python3 -m compileall -q src tests
+python3 -m compileall -q src scripts tests
 ```
 
 ## 许可证

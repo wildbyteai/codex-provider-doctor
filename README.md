@@ -6,6 +6,22 @@ Codex Provider Doctor is a read-only companion to the built-in `codex doctor` co
 
 Status: alpha. The tool reports findings and suggested diffs. It does not edit Codex configuration or task databases.
 
+## Use as a Codex skill (recommended)
+
+Users do not need to run the diagnostic command themselves. Ask Codex:
+
+```text
+Use $skill-installer to install the repository root (path `.`) of wildbyteai/codex-provider-doctor and name it codex-provider-doctor.
+```
+
+Start a new task after installation; restart Codex if the skill list has not refreshed. Then ask:
+
+```text
+Use $codex-provider-doctor to check why skills, model names, Chrome, plugins, or older tasks changed after I configured a third-party API.
+```
+
+Codex can match the natural-language request to the skill; explicitly naming `$codex-provider-doctor` is the most reliable entry point. Codex then runs the bundled read-only checker and explains the result. The skill and CLI share the same source, so the skill does not globally install the package or create a virtual environment. Python 3.11 or later is currently required.
+
 ## What it checks
 
 - The effective system, user, profile, trusted-project, and command-line configuration layers.
@@ -36,7 +52,7 @@ The first three usually require inspecting both the effective `config.toml` and 
 - Never updates task rows, changes provider bindings, installs plugins, or edits configuration.
 - Does not upload configuration, reports, or logs.
 
-## Install from source
+## Optional CLI installation
 
 Python 3.11 or later is required.
 
@@ -133,7 +149,7 @@ Then use this project for provider-specific catalog resolution, compatibility me
 
 ```shell
 python3 -m unittest discover -s tests -v
-python3 -m compileall -q src tests
+python3 -m compileall -q src scripts tests
 ```
 
 ## License

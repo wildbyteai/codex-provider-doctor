@@ -14,7 +14,8 @@ Codex Provider Doctor is intentionally small, read-only, and standard-library fi
 
 ```shell
 python3 -m unittest discover -s tests -v
-python3 -m compileall -q src tests
+python3 -m compileall -q src scripts tests
+python3 scripts/run_skill.py --help
 ```
 
 ## Pull requests
