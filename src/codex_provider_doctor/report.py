@@ -112,19 +112,19 @@ ENGLISH_FINDINGS: dict[str, tuple[str, str, str]] = {
         "Run codex login. Do not manually copy, overwrite, or publish auth.json.",
     ),
     "plugins.probe_failed": (
-        "Plugin installation state could not be read",
-        "codex plugin list --json did not succeed; raw output was discarded.",
-        "Confirm Chrome is installed and enabled in Plugins, then open a new task.",
+        "The CLI plugin probe could not verify runtime state",
+        "codex plugin list --json did not succeed; raw output was discarded. This means the CLI inventory is unavailable; it does not prove that a plugin is absent, disabled, or broken.",
+        "Check the Settings or Plugins page and a live invocation first. If either confirms the plugin works, do not reinstall it or clear caches.",
     ),
     "plugins.marketplace_snapshot_invalid": (
-        "A configured plugin marketplace snapshot could not be loaded",
-        "Codex found a marketplace snapshot whose directory does not contain a supported manifest. Raw paths and command output were discarded.",
-        "Refresh or reinstall that marketplace from Plugins. If the problem continues, back up and repair the marketplace cache before testing Chrome in a new task.",
+        "The CLI plugin probe could not verify runtime state",
+        "codex plugin list --json failed because a marketplace directory lacks a manifest supported by that command. Raw paths and command output were discarded. This does not prove that a plugin is absent or broken.",
+        "Check the Settings or Plugins page and a live invocation first. If the UI or runtime confirms the plugin works, do not reinstall it or clear caches. Repair the marketplace only when the UI and runtime also fail, and back up before clearing caches.",
     ),
     "plugins.invalid_output": (
-        "Plugin status output could not be parsed",
-        "The plugin command did not return expected JSON; raw output was discarded.",
-        "Update Codex and retry, or verify Chrome manually in Plugins.",
+        "The CLI plugin probe returned an unrecognized status",
+        "The plugin command did not return expected JSON; raw output was discarded. This means the CLI inventory could not be parsed; it does not prove that a plugin is unavailable.",
+        "Check the Settings or Plugins page and a live invocation first. If both work, treat this as a CLI compatibility gap; continue repair only when runtime behavior also fails.",
     ),
     "plugins.chrome.not_installed": (
         "The Chrome plugin was not confirmed as installed",

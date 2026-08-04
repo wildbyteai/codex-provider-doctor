@@ -83,7 +83,8 @@
 2. 运行 codex plugin list --json。兼容顶层 installed/available 结构，也兼容旧数组结构；报告只保留插件总数，以及精确匹配到的 Chrome installed 和 enabled 聚合状态，不输出其他插件名称或标识符。
 3. 检查 features.apps 和 features.remote_plugin 是否被关闭。
 4. 确认 Chrome 插件已安装并开启。
-5. 人工检查必须列出：
+5. 按证据强弱判断插件与 Chrome 状态：实际调用成功 > 当前任务已提供目标工具或设置页面可见 > codex plugin list --json 成功 > 静态配置推断。CLI 探针失败或输出无法解析，只表示清单未核验，不能据此判断插件不存在、未开启或损坏；界面或实际调用正常时，不建议重装插件或清理缓存。
+6. 人工检查必须列出：
    - 使用的是 Google Chrome，不是其他 Chromium 浏览器；
    - 当前 Chrome Profile 正是安装并启用 ChatGPT 扩展的 Profile；
    - ChatGPT/Codex 的 Computer Use 没有阻止目标网站；

@@ -301,13 +301,40 @@ class RuntimeProbeTests(unittest.TestCase):
             self.assertEqual(
                 {
                     "plugin_probe": report["plugins"]["probe"],
+                    "chrome": report["plugins"]["chrome"],
                     "finding_codes": [finding["code"] for finding in report["findings"]],
                 },
                 {
                     "plugin_probe": "failed",
+                    "chrome": {"found": None, "installed": None, "enabled": None},
                     "finding_codes": ["plugins.marketplace_snapshot_invalid"],
                 },
             )
+            finding = report["findings"][0]
+            self.assertIn("不能据此判断插件不可用", finding["message"])
+            self.assertIn("设置页面", finding["remedy"])
+            self.assertIn("无需重装或清理缓存", finding["remedy"])
+
+            english_result = run_doctor(
+                "--codex-home",
+                str(codex_home),
+                "--system-config",
+                str(root / "missing-system.toml"),
+                "--lang",
+                "en",
+                "--json",
+                extra_env={
+                    "PATH": f"{bin_directory}{os.pathsep}{os.environ.get('PATH', '')}",
+                },
+            )
+            self.assertEqual(english_result.returncode, 1, english_result.stderr)
+            english_finding = json.loads(english_result.stdout)["findings"][0]
+            self.assertIn(
+                "does not prove that a plugin is absent or broken",
+                english_finding["message"],
+            )
+            self.assertIn("Settings or Plugins page", english_finding["remedy"])
+            self.assertIn("do not reinstall it or clear caches", english_finding["remedy"])
 
     def test_versioned_compatibility_rule_warns_on_a_different_codex_version(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

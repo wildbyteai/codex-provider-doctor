@@ -622,9 +622,9 @@ def plugins_report(
                 finding(
                     "plugins.marketplace_snapshot_invalid",
                     "warning",
-                    "插件市场快照无法加载",
-                    "Codex 找到了已配置的插件市场快照，但其中至少一个目录缺少受支持的 manifest；原始路径和输出已丢弃。",
-                    "先在 Codex 的 Plugins 页面刷新或重新安装对应市场；如果问题持续，再备份后清理损坏的市场缓存，并新建任务复测 Chrome。",
+                    "CLI 插件探针未能核验实际状态",
+                    "codex plugin list --json 因一个插件市场目录缺少当前命令支持的 manifest 而失败；原始路径和输出已丢弃。这个结果只表示 CLI 清单不可用，不能据此判断插件不可用。",
+                    "优先查看 Codex 设置页面并进行实际功能测试。如果设置页面可见或实际调用正常，无需重装或清理缓存；只有界面和运行时也失败时，才考虑刷新或重新安装插件市场，清理缓存前先备份。",
                 )
             )
             return report
@@ -632,9 +632,9 @@ def plugins_report(
             finding(
                 "plugins.probe_failed",
                 "warning",
-                "无法读取插件安装状态",
-                "codex plugin list --json 没有成功返回；原始输出已丢弃。",
-                "在 Codex 桌面端或 CLI 的 Plugins 页面确认 Chrome 已安装并开启，然后新建任务。",
+                "CLI 插件探针未能核验实际状态",
+                "codex plugin list --json 没有成功返回；原始输出已丢弃。这个结果只表示 CLI 清单不可用，不能据此判断插件不存在、未开启或损坏。",
+                "优先查看 Codex 设置页面并进行实际功能测试。如果界面或实际调用已经确认插件正常，不要重装或清理缓存。",
             )
         )
         return report
@@ -646,9 +646,9 @@ def plugins_report(
             finding(
                 "plugins.invalid_output",
                 "warning",
-                "插件状态输出无法解析",
-                "插件命令返回的不是预期 JSON；原始输出已丢弃。",
-                "更新 Codex 后重试，或在 Plugins 页面人工确认 Chrome 状态。",
+                "CLI 插件探针返回了无法解析的状态",
+                "插件命令返回的不是预期 JSON；原始输出已丢弃。这个结果只表示 CLI 清单无法解析，不能据此判断插件不可用。",
+                "优先查看 Codex 设置页面并进行实际功能测试。如果两者正常，把这项视为 CLI 兼容性缺口；只有实际功能也失败时才继续修复。",
             )
         )
         return report

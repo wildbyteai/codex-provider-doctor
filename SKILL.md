@@ -41,6 +41,15 @@ Reply in the user's language; default to Chinese. Lead with the error count, war
 
 Do not paste the entire JSON report unless the user requests it. Translate findings into plain language suitable for a non-technical user.
 
+Rank plugin and Chrome evidence from strongest to weakest:
+
+1. A requested live smoke test or successful real invocation.
+2. The current task exposing the expected tool, or the user confirming it on the Settings or Plugins page.
+3. A successful `codex plugin list --json` probe.
+4. Static configuration and manual inference.
+
+A failed or unparseable CLI plugin probe means the checker could not verify the inventory. It does not prove that a plugin is absent or broken. If stronger evidence shows the plugin is visible or working, describe the CLI result as a verification or compatibility gap and do not recommend reinstalling the plugin or clearing caches. Consider repair only when the UI and live runtime also fail.
+
 If the current task exposes a Chrome control tool and the user asked to test Chrome, perform a minimal smoke test using a new blank tab, then close only that temporary tab. Do not inspect existing tabs or visit a private site. Report the live smoke test separately from configuration evidence.
 
 ## Fall back safely

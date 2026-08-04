@@ -13,6 +13,12 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Simplified the user-facing Skill installation prompt to require only the GitHub repository URL.
+- Ranked live invocation and Settings evidence above the CLI plugin inventory probe.
+
+### Fixed
+
+- Treat a failed or unparseable plugin CLI probe as an unverified inventory instead of evidence that a plugin is missing or broken.
+- Avoid recommending plugin reinstalls or cache cleanup when the UI or live runtime already confirms the plugin works.
 
 ## [0.1.0] - 2026-08-04
 

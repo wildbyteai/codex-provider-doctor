@@ -30,7 +30,7 @@ Codex handles the repository path, Skill name, and installer arguments. If the c
 - The active `model` and its exact `models[].slug` match.
 - Model display metadata, `tool_mode`, `supports_search_tool`, `use_responses_lite`, context window, and compact limits.
 - Provider authentication conflicts involving `requires_openai_auth`, `env_key`, command authentication, or a direct bearer token.
-- Official Codex login state plus a plugin count and exact Chrome status through redacted, read-only CLI probes; other plugin names are not reported.
+- Official Codex login state plus a plugin count and exact Chrome status when the redacted, read-only CLI probe succeeds; otherwise the inventory remains explicitly unverified. Other plugin names are not reported.
 - Chrome installation and enablement signals, followed by a manual acceptance checklist.
 - Read-only aggregate counts for local tasks whose stored `model_provider` differs from the active provider.
 
@@ -42,6 +42,17 @@ Codex handles the repository path, Skill name, and installer arguments. If the c
 4. Older tasks appear to be missing after switching providers.
 
 The first three usually require inspecting both the effective `config.toml` and the model catalog JSON it references. The fourth can be a separate local-index issue: task files may still exist while their database rows remain bound to another provider.
+
+## How plugin evidence is interpreted
+
+The CLI plugin probe is one evidence source, not the final authority on runtime availability. Evidence should be read in this order:
+
+1. A successful live invocation.
+2. The current task exposing the expected tool, or the Settings or Plugins page showing it.
+3. A successful `codex plugin list --json` result.
+4. Static configuration and manual inference.
+
+If the CLI command fails or returns an unsupported format, the plugin inventory is unverified. That result does not prove a plugin is missing, disabled, or broken. Do not reinstall plugins or clear caches when the UI or a live invocation already works; consider repair only when those stronger checks also fail.
 
 ## Safety model
 

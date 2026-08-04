@@ -36,6 +36,13 @@ class SkillEntrypointTests(unittest.TestCase):
         self.assertIn("$codex-provider-doctor", openai_yaml)
         self.assertIn("allow_implicit_invocation: true", openai_yaml)
 
+    def test_skill_ranks_live_plugin_evidence_above_cli_probe_failures(self) -> None:
+        skill_text = SKILL_FILE.read_text(encoding="utf-8")
+
+        self.assertIn("live smoke test", skill_text)
+        self.assertIn("Settings or Plugins page", skill_text)
+        self.assertIn("does not prove that a plugin is absent or broken", skill_text)
+
     def test_readme_install_prompt_only_requires_the_repository_url(self) -> None:
         readme_zh = README_ZH.read_text(encoding="utf-8")
         readme_en = README_EN.read_text(encoding="utf-8")
