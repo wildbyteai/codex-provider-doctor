@@ -8,19 +8,19 @@ Status: alpha. The tool reports findings and suggested diffs. It does not edit C
 
 ## Use as a Codex skill (recommended)
 
-Users do not need to run the diagnostic command themselves. Ask Codex:
+Send the repository link to Codex:
 
 ```text
-Use $skill-installer to install the repository root (path `.`) of wildbyteai/codex-provider-doctor and name it codex-provider-doctor.
+Install this Skill for me: https://github.com/wildbyteai/codex-provider-doctor
 ```
 
 Start a new task after installation; restart Codex if the skill list has not refreshed. Then ask:
 
 ```text
-Use $codex-provider-doctor to check why skills, model names, Chrome, plugins, or older tasks changed after I configured a third-party API.
+Check why skills, model names, Chrome, plugins, or older tasks changed after I configured a third-party API in Codex.
 ```
 
-Codex can match the natural-language request to the skill; explicitly naming `$codex-provider-doctor` is the most reliable entry point. Codex then runs the bundled read-only checker and explains the result. The skill and CLI share the same source, so the skill does not globally install the package or create a virtual environment. Python 3.11 or later is currently required.
+Codex handles the repository path, Skill name, and installer arguments. If the current task does not match the Skill, explicitly ask it to use `$codex-provider-doctor`. Codex then runs the bundled read-only checker and explains the result. The skill and CLI share the same source, so the skill does not globally install the package or create a virtual environment. Python 3.11 or later is currently required.
 
 ## What it checks
 

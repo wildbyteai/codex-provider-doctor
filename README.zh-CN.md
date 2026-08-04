@@ -17,19 +17,19 @@
 
 ## 使用 Skill（推荐）
 
-普通用户不需要打开终端执行诊断命令。直接对 Codex 说：
+普通用户只要把仓库链接发给 Codex：
 
 ```text
-使用 $skill-installer，从 GitHub 仓库 wildbyteai/codex-provider-doctor 的根目录（path `.`）安装，并命名为 codex-provider-doctor。
+帮我安装这个 Skill：https://github.com/wildbyteai/codex-provider-doctor
 ```
 
 安装完成后新建一个任务；如果技能列表没有刷新，再重启 Codex。然后说：
 
 ```text
-使用 $codex-provider-doctor 检查我接入第三方 API 后，Skill、模型名称、Chrome 插件和历史任务是否正常。
+帮我检查 Codex 接入第三方 API 后，Skill、模型名称、Chrome 插件和历史任务为什么不正常。
 ```
 
-也可以直接用自然语言描述上述问题，由 Codex 根据触发描述加载 Skill；显式写 `$codex-provider-doctor` 最可靠。Agent 会自己运行仓库内置的只读检测入口，再用中文解释结果；不需要用户复制 `codex-provider-doctor` 命令。
+安装参数、仓库根目录和 Skill 名称由 Agent 自己处理。如果当前任务没有匹配到 Skill，再显式说“使用 `$codex-provider-doctor` 检查”。Agent 会自己运行仓库内置的只读检测入口，再用中文解释结果；不需要用户复制 `codex-provider-doctor` 命令。
 
 Skill 和命令行工具使用同一套诊断代码。Skill 不会全局安装 Python 包，不会创建虚拟环境，也不会在诊断阶段修改配置或数据库。当前仍需要本机存在 Python 3.11 或更高版本。
 

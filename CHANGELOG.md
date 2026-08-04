@@ -10,6 +10,10 @@ All notable changes to this project will be documented in this file.
 - A bundled Skill runner that uses the repository source without global package installation.
 - Skill entry-point tests and natural-language installation instructions.
 
+### Changed
+
+- Simplified the user-facing Skill installation prompt to require only the GitHub repository URL.
+
 ## [0.1.0] - 2026-08-04
 
 ### Added
