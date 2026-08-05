@@ -195,6 +195,12 @@ def _execute(args: argparse.Namespace) -> int:
     report["solutions"]["health_checks"] = build_solution_health_checks(
         report,
         args.lang,
+        codex_home=resolution.codex_home,
+        project_root=(
+            Path(str(resolution.project["root"]))
+            if resolution.project.get("root")
+            else None
+        ),
     )
     if args.json:
         json.dump(report, sys.stdout, ensure_ascii=False, indent=2)

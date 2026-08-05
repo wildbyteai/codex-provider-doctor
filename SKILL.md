@@ -42,9 +42,9 @@ Exit codes remain `0` for no errors or warnings, `1` for warnings, `2` for error
 
 ## Explain the result
 
-Lead with a fixed health-check card for each requested problem. Use this order every time: current result, what controls it, desired state, how to change it, and how to verify it. Use plain language first; keep raw field names secondary. Do not start with configuration layers.
+Lead with a fixed health-check card for each requested problem. Use this order every time: current result, exact locations/key parameters, what controls it, desired state, how to change it, and how to verify it. Use plain language first, but always name the concrete file or UI location, relevant parameter, and safe current value. Do not start with configuration layers.
 
-Preserve every health-check card emitted by the checker, in the same order and with all five fields. Do not replace the cards with a free-form technical summary. A short upgrade note may come first, but it must not consume or substitute for the diagnostic cards. If a machine integration requires `--json`, render `solutions.health_checks` in order instead of inventing a new narrative from raw findings.
+Preserve every health-check card emitted by the checker, in the same order and with all six fields. Do not replace the cards with a free-form technical summary. A short upgrade note may come first, but it must not consume or substitute for the diagnostic cards. If a machine integration requires `--json`, render `solutions.health_checks` in order instead of inventing a new narrative from raw findings.
 
 For the five guides:
 
@@ -54,7 +54,7 @@ For the five guides:
 4. Give no-write recovery first: switch back to the old Provider or use an all-Provider task view. Database migration remains a separately confirmed high-risk operation.
 5. Separate static Direct/Deferred exposure, Plugins/Settings evidence, and a live Chrome smoke test.
 
-The default human response must read like an action checklist, not a technical log. Put full field paths, origin layers, raw compatibility assessments, and the original technical diagnosis behind `--details`, except when one exact field is required to carry out the recommended change.
+The default human response must read like an action checklist, not a technical log. Its `exact_targets` section must show normalized locations such as `$CODEX_HOME/config.toml`, `$PROJECT_ROOT/.agents/skills`, the actual normalized model-catalog or database path, the relevant field, and a redacted current value. Put complete origin-layer dumps, raw compatibility assessments, and the original technical diagnosis behind `--details`.
 
 Running the same source from a temporary clone does not by itself prove that the result is unaffected. State equivalence only after confirming the same real `CODEX_HOME`, original working directory, and active Profile were used; otherwise mark project configuration and project-Skill coverage as potentially different.
 

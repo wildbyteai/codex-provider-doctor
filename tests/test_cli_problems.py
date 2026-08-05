@@ -12,7 +12,7 @@ from tests.test_cli_runtime import install_fake_codex
 
 
 class UserProblemGuideTests(unittest.TestCase):
-    def test_json_exposes_the_same_five_health_check_fields_as_the_human_report(self) -> None:
+    def test_json_exposes_the_same_six_health_check_fields_as_the_human_report(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             codex_home = root / "codex-home"
@@ -61,6 +61,7 @@ class UserProblemGuideTests(unittest.TestCase):
                         "status",
                         "status_label",
                         "current_result",
+                        "exact_targets",
                         "controlled_by",
                         "desired_state",
                         "how_to_change",
@@ -68,6 +69,15 @@ class UserProblemGuideTests(unittest.TestCase):
                     },
                 )
                 self.assertTrue(card["current_result"])
+                self.assertTrue(card["exact_targets"])
+                for target in card["exact_targets"]:
+                    self.assertEqual(
+                        set(target),
+                        {"location", "parameter", "current_value"},
+                    )
+                    self.assertTrue(target["location"])
+                    self.assertTrue(target["parameter"])
+                    self.assertTrue(target["current_value"])
                 self.assertTrue(card["controlled_by"])
                 self.assertTrue(card["desired_state"])
                 self.assertTrue(card["how_to_change"])
@@ -90,6 +100,14 @@ class UserProblemGuideTests(unittest.TestCase):
                     f"当前结果：{card['current_result']}",
                     human_result.stdout,
                 )
+                for target in card["exact_targets"]:
+                    self.assertIn(
+                        (
+                            f"- {target['location']} → {target['parameter']}："
+                            f"{target['current_value']}"
+                        ),
+                        human_result.stdout,
+                    )
                 for control in card["controlled_by"]:
                     self.assertIn(f"- {control}", human_result.stdout)
                 self.assertIn(
@@ -145,6 +163,336 @@ class UserProblemGuideTests(unittest.TestCase):
             self.assertNotIn(secret, health_checks)
             self.assertNotIn(private_path, health_checks)
             self.assertNotIn(str(root), health_checks)
+
+    def test_health_checks_name_concrete_files_parameters_and_safe_current_values(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="doctor-exact-targets-") as temporary_directory:
+            root = Path(temporary_directory)
+            codex_home = root / "codex-home"
+            project = root / "project"
+            codex_home.mkdir()
+            (codex_home / "skills" / "installed-skill").mkdir(parents=True)
+            (codex_home / "skills" / "installed-skill" / "SKILL.md").write_text(
+                "# test-only skill\n",
+                encoding="utf-8",
+            )
+            (project / ".git").mkdir(parents=True)
+            (project / ".agents" / "skills" / "project-skill").mkdir(parents=True)
+            (project / ".agents" / "skills" / "project-skill" / "SKILL.md").write_text(
+                "# test-only project skill\n",
+                encoding="utf-8",
+            )
+            secret = "exact-target-token-must-never-appear"
+            auth_secret = "auth-json-secret-must-never-appear"
+            (codex_home / "auth.json").write_text(
+                json.dumps({"token": auth_secret}),
+                encoding="utf-8",
+            )
+            (codex_home / "catalog.json").write_text(
+                json.dumps(
+                    {
+                        "models": [
+                            {
+                                "slug": "vendor-model-v1",
+                                "display_name": "Vendor Model V1",
+                                "supports_search_tool": False,
+                                "tool_mode": "direct",
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (codex_home / "config.toml").write_text(
+                "\n".join(
+                    [
+                        'model = "vendor-model-v1"',
+                        'model_provider = "custom"',
+                        'model_catalog_json = "catalog.json"',
+                        "",
+                        "[features]",
+                        "apps = true",
+                        "remote_plugin = false",
+                        "",
+                        "[model_providers.custom]",
+                        'base_url = "https://api.example.invalid/private-route"',
+                        'wire_api = "responses"',
+                        "requires_openai_auth = true",
+                        f'experimental_bearer_token = "{secret}"',
+                        "",
+                        f"[projects.{json.dumps(str(project))}]",
+                        'trust_level = "trusted"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            with sqlite3.connect(codex_home / "history.sqlite") as connection:
+                connection.execute(
+                    """
+                    CREATE TABLE threads (
+                        id TEXT PRIMARY KEY,
+                        model_provider TEXT NOT NULL,
+                        archived INTEGER NOT NULL DEFAULT 0
+                    )
+                    """
+                )
+                connection.executemany(
+                    "INSERT INTO threads (id, model_provider, archived) VALUES (?, ?, ?)",
+                    [
+                        ("current-thread", "custom", 0),
+                        ("old-thread-1", "openai", 0),
+                        ("old-thread-2", "openai", 0),
+                    ],
+                )
+
+            result = run_doctor(
+                "--codex-home",
+                str(codex_home),
+                "--cwd",
+                str(project),
+                "--system-config",
+                str(root / "missing-system.toml"),
+                "--no-command-checks",
+                "--json",
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            report = json.loads(result.stdout)
+            cards = {
+                card["id"]: card
+                for card in report["solutions"]["health_checks"]
+            }
+
+            def target_map(problem_id: str) -> dict[tuple[str, str], str]:
+                return {
+                    (target["location"], target["parameter"]): target["current_value"]
+                    for target in cards[problem_id]["exact_targets"]
+                }
+
+            login = target_map("keep-official-login")
+            self.assertEqual(
+                login[("$CODEX_HOME/config.toml", "[model_providers.custom].requires_openai_auth")],
+                "true",
+            )
+            self.assertEqual(
+                login[("$CODEX_HOME/config.toml", "[model_providers.custom].experimental_bearer_token")],
+                "已配置（值未读取）",
+            )
+            self.assertEqual(
+                login[("$CODEX_HOME/auth.json", "官方登录缓存")],
+                "文件存在；内容未读取",
+            )
+
+            plugins = target_map("plugins-or-skills-unavailable")
+            self.assertEqual(plugins[("$CODEX_HOME/skills", "已安装 Skill")], "1 个")
+            self.assertEqual(plugins[("$PROJECT_ROOT/.agents/skills", "项目 Skill")], "1 个；项目已受信任")
+            self.assertEqual(plugins[("$CODEX_HOME/config.toml", "features.apps")], "true")
+            self.assertEqual(plugins[("$CODEX_HOME/config.toml", "features.remote_plugin")], "false")
+            self.assertEqual(
+                plugins[("New task → tool list", "目标 Skill / 插件工具是否出现")],
+                "运行时未核验",
+            )
+            self.assertEqual(
+                plugins[("New task → minimal live invocation", "目标 Skill / 插件真实调用")],
+                "未执行；需逐项验证",
+            )
+
+            model = target_map("model-name-incorrect")
+            self.assertEqual(model[("$CODEX_HOME/config.toml", "model")], "vendor-model-v1")
+            self.assertEqual(model[("$CODEX_HOME/catalog.json", "models[].slug")], "vendor-model-v1（唯一匹配）")
+            self.assertEqual(model[("$CODEX_HOME/catalog.json", "models[].display_name")], "Vendor Model V1")
+
+            history = target_map("history-missing")
+            self.assertEqual(history[("$CODEX_HOME/history.sqlite", "threads.model_provider")], "openai：2 个未归档；当前 Provider：custom")
+            self.assertEqual(
+                history[("$CODEX_HOME/history.sqlite", "threads.model_provider = custom")],
+                "总数 1；未归档 1；已归档 0（当前 Provider）",
+            )
+            self.assertEqual(
+                history[("$CODEX_HOME/history.sqlite", "threads.model_provider = openai")],
+                "总数 2；未归档 2；已归档 0",
+            )
+            self.assertEqual(history[("$CODEX_HOME/history.sqlite", "数据库访问方式")], "只读；未读取任务正文")
+
+            chrome = target_map("chrome-unavailable")
+            self.assertEqual(chrome[("$CODEX_HOME/catalog.json", "models[].supports_search_tool")], "false（兼容性线索，不是唯一根因）")
+            self.assertEqual(chrome[("$CODEX_HOME/catalog.json", "models[].tool_mode")], "direct")
+            self.assertEqual(chrome[("$CODEX_HOME/config.toml", "features.apps")], "true")
+            self.assertEqual(chrome[("$CODEX_HOME/config.toml", "features.remote_plugin")], "false")
+
+            serialized_cards = json.dumps(cards, ensure_ascii=False)
+            self.assertNotIn(secret, serialized_cards)
+            self.assertNotIn(auth_secret, serialized_cards)
+            self.assertNotIn("private-route", serialized_cards)
+            self.assertNotIn(str(root), serialized_cards)
+
+    def test_chrome_health_check_shows_true_and_false_without_claiming_a_unique_root_cause(self) -> None:
+        for supports_search_tool in (False, True):
+            with self.subTest(supports_search_tool=supports_search_tool):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    root = Path(temporary_directory)
+                    codex_home = root / "codex-home"
+                    codex_home.mkdir()
+                    (codex_home / "catalog.json").write_text(
+                        json.dumps(
+                            {
+                                "models": [
+                                    {
+                                        "slug": "vendor-model-v1",
+                                        "display_name": "Vendor Model V1",
+                                        "supports_search_tool": supports_search_tool,
+                                    }
+                                ]
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                    (codex_home / "config.toml").write_text(
+                        "\n".join(
+                            [
+                                'model = "vendor-model-v1"',
+                                'model_provider = "custom"',
+                                'model_catalog_json = "catalog.json"',
+                                "",
+                                "[model_providers.custom]",
+                                'base_url = "https://api.example.invalid/v1"',
+                                'wire_api = "responses"',
+                            ]
+                        ),
+                        encoding="utf-8",
+                    )
+
+                    result = run_doctor(
+                        "--codex-home",
+                        str(codex_home),
+                        "--system-config",
+                        str(root / "missing-system.toml"),
+                        "--no-command-checks",
+                        "--problem",
+                        "chrome-unavailable",
+                        "--json",
+                    )
+
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    report = json.loads(result.stdout)
+                    card = report["solutions"]["health_checks"][0]
+                    value = "true" if supports_search_tool else "false"
+                    self.assertIn(
+                        f"supports_search_tool = {value}",
+                        card["current_result"],
+                    )
+                    support_target = next(
+                        target
+                        for target in card["exact_targets"]
+                        if target["parameter"] == "models[].supports_search_tool"
+                    )
+                    self.assertEqual(
+                        support_target["current_value"],
+                        f"{value}（兼容性线索，不是唯一根因）",
+                    )
+                    self.assertNotIn("唯一根因是", card["current_result"])
+
+    def test_provider_fields_keep_their_individual_effective_config_origins(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            codex_home = root / "codex-home"
+            codex_home.mkdir()
+            secret = "split-origin-token-must-never-appear"
+            (codex_home / "config.toml").write_text(
+                "\n".join(
+                    [
+                        'model = "vendor-model-v1"',
+                        'model_provider = "custom"',
+                        "",
+                        "[model_providers.custom]",
+                        'base_url = "https://api.example.invalid/v1"',
+                        "requires_openai_auth = true",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (codex_home / "work.config.toml").write_text(
+                "\n".join(
+                    [
+                        "[model_providers.custom]",
+                        f'experimental_bearer_token = "{secret}"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            result = run_doctor(
+                "--codex-home",
+                str(codex_home),
+                "--profile",
+                "work",
+                "--system-config",
+                str(root / "missing-system.toml"),
+                "--no-command-checks",
+                "--problem",
+                "keep-official-login",
+                "--json",
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertNotIn(secret, result.stdout)
+            card = json.loads(result.stdout)["solutions"]["health_checks"][0]
+            targets = {
+                target["parameter"]: target["location"]
+                for target in card["exact_targets"]
+            }
+            self.assertEqual(
+                targets["[model_providers.custom].requires_openai_auth"],
+                "$CODEX_HOME/config.toml",
+            )
+            self.assertEqual(
+                targets["[model_providers.custom].experimental_bearer_token"],
+                "$CODEX_HOME/work.config.toml",
+            )
+
+    def test_builtin_provider_cards_do_not_invent_custom_provider_or_catalog_locations(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            codex_home = root / "codex-home"
+            codex_home.mkdir()
+            (codex_home / "config.toml").write_text(
+                'model = "gpt-example"\n',
+                encoding="utf-8",
+            )
+
+            result = run_doctor(
+                "--codex-home",
+                str(codex_home),
+                "--system-config",
+                str(root / "missing-system.toml"),
+                "--no-command-checks",
+                "--problem",
+                "model-name-incorrect",
+                "--problem",
+                "chrome-unavailable",
+                "--json",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            cards = json.loads(result.stdout)["solutions"]["health_checks"]
+            serialized = json.dumps(cards, ensure_ascii=False)
+            self.assertNotIn("[model_providers.openai]", serialized)
+            self.assertNotIn("$CODEX_HOME/config.toml → models[]", serialized)
+            model_card, chrome_card = cards
+            self.assertNotIn(
+                "models[].slug",
+                {target["parameter"] for target in model_card["exact_targets"]},
+            )
+            self.assertEqual(model_card["status"], "runtime_verification_required")
+            self.assertIn("无须配置自定义模型目录", model_card["current_result"])
+            self.assertNotIn("修改模型目录", json.dumps(model_card["how_to_change"], ensure_ascii=False))
+            self.assertIn(
+                {
+                    "location": "$CODEX_HOME/config.toml",
+                    "parameter": "model_provider",
+                    "current_value": "openai（内置 Provider）",
+                },
+                chrome_card["exact_targets"],
+            )
 
     def test_default_report_does_not_acknowledge_dual_auth_intent_without_user_confirmation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -371,6 +719,19 @@ class UserProblemGuideTests(unittest.TestCase):
                         "不要在内置 OpenAI Provider 上添加 experimental_bearer_token。",
                     ],
                 },
+            )
+            card = report["solutions"]["health_checks"][0]
+            self.assertNotIn(
+                "[model_providers.openai]",
+                json.dumps(card, ensure_ascii=False),
+            )
+            self.assertIn(
+                {
+                    "location": "$CODEX_HOME/config.toml",
+                    "parameter": "model_provider",
+                    "current_value": "openai（内置 Provider）",
+                },
+                card["exact_targets"],
             )
 
     def test_keep_official_login_problem_requires_auth_method_transition_instead_of_stacking_on_env_key(self) -> None:
@@ -1287,6 +1648,7 @@ class UserProblemGuideTests(unittest.TestCase):
                 self.assertIn(title, result.stdout)
             for label in (
                 "当前结果：",
+                "具体位置/关键参数：",
                 "受什么控制：",
                 "目标状态：",
                 "怎么处理：",
@@ -1296,8 +1658,8 @@ class UserProblemGuideTests(unittest.TestCase):
             self.assertIn("界面标签不能证明", result.stdout)
             self.assertIn("目录已经正确时，不再改 JSON 或反复清缓存", result.stdout)
             self.assertNotIn("技术判断：", result.stdout)
-            self.assertNotIn("requires_openai_auth", result.stdout)
-            self.assertNotIn("model_catalog_json", result.stdout)
+            self.assertIn("requires_openai_auth", result.stdout)
+            self.assertIn("model_catalog_json", result.stdout)
             self.assertNotIn("namespace", result.stdout)
             self.assertIn("使用 --details 查看配置层、字段来源和完整诊断证据。", result.stdout)
             self.assertNotIn("生效配置\n", result.stdout)

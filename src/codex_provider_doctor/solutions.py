@@ -246,6 +246,39 @@ def _model_name_solution(
     model_slug = effective.get("model")
     catalog_path = effective.get("model_catalog_json")
     display_name = selected.get("display_name") if isinstance(selected, dict) else None
+    built_in_openai = (
+        report["provider"].get("id") == "openai"
+        and report["provider"].get("name") == "OpenAI (built-in)"
+    )
+
+    if built_in_openai and catalog_path is None:
+        if language == "en":
+            return {
+                "id": "model-name-incorrect",
+                "title": "Fix the model name",
+                "status": "runtime_verification_required",
+                "diagnosis": "The built-in OpenAI Provider is active, so no custom model catalog is required. The doctor cannot observe the App Server list or Windows Desktop picker automatically.",
+                "catalog_path": None,
+                "model_slug": model_slug,
+                "actions": [
+                    "Do not add model_catalog_json only to change the built-in model label.",
+                    "Compare App Server model/list with the Windows Desktop picker.",
+                    "Use one real request to confirm routing; the picker label is not proof.",
+                ],
+            }
+        return {
+            "id": "model-name-incorrect",
+            "title": "修正模型名称",
+            "status": "runtime_verification_required",
+            "diagnosis": "当前使用内置 OpenAI Provider，无须配置自定义模型目录；doctor 无法自动观察 App Server 列表和 Windows Desktop 下拉框。",
+            "catalog_path": None,
+            "model_slug": model_slug,
+            "actions": [
+                "不要只为修改内置模型名称而新增 model_catalog_json。",
+                "分别核对 App Server 的 model/list 和 Windows Desktop 下拉框。",
+                "用一次真实请求确认路由；界面标签不能作为证明。",
+            ],
+        }
 
     if not isinstance(selected, dict):
         if language == "en":

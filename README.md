@@ -21,13 +21,14 @@ Instead of a loose technical narrative, every selected problem uses the same hea
 ```text
 1. Check [status]
    Current result: what is happening now
+   Exact locations / key parameters: which file or UI surface, which field, and its redacted current value
    Controlled by: which settings, sign-in state, or runtime state decides it
    Desired state: what normal looks like
    How to change: ordered recovery actions
    How to verify: the observable acceptance check
 ```
 
-The default report uses plain language. Slugs, table paths, field origins, and complete evidence move to `--details` unless they are necessary for the action.
+The default report uses plain language and directly names the concrete locations and parameters needed for recovery. Paths are normalized to safe forms such as `$CODEX_HOME/...` and `$PROJECT_ROOT/...`; tokens are shown only as configured or not configured. Use `--details` for complete origin layers and technical evidence.
 
 ## Use as a Codex skill (recommended)
 
@@ -45,7 +46,7 @@ Check how to keep my official sign-in and fix plugins, Skills, model names, olde
 
 Codex handles the repository path, Skill name, and installer arguments. If the current task does not match the Skill, explicitly ask it to use `$codex-provider-doctor`. Codex then runs the bundled read-only checker and explains the result. The skill and CLI share the same source, so the skill does not globally install the package or create a virtual environment. Python 3.11 or later is currently required.
 
-The Skill uses the canonical human-readable report directly instead of asking an Agent to freely summarize raw JSON. Every emitted health-check card and all five fields must be preserved. Machine integrations may still use `--json` and should render `solutions.health_checks` in order.
+The Skill uses the canonical human-readable report directly instead of asking an Agent to freely summarize raw JSON. Every emitted health-check card and all six fields must be preserved. Machine integrations may still use `--json` and should render `solutions.health_checks` in order.
 
 If permissions require running from a temporary repository copy, keep the real `CODEX_HOME`, the original project working directory, and the same Profile. Pass `--cwd` when a launcher changes directories. Do not claim the result is unaffected until those three inputs match, because project configuration and project-Skill coverage can otherwise differ.
 
@@ -58,7 +59,7 @@ If permissions require running from a temporary repository copy, keep the real `
 - The active `model` and its exact `models[].slug` match.
 - Model display metadata, `tool_mode`, `supports_search_tool`, `use_responses_lite`, context window, and compact limits.
 - A conditional Windows Desktop picker reminder when the catalog fields are already valid, keeping catalog, App Server, picker, and live-request evidence separate.
-- Five consistent health-check cards covering current result, controls, desired state, recovery actions, and verification before technical evidence.
+- Five consistent health-check cards covering current result, exact locations/key parameters, controls, desired state, recovery actions, and verification before full technical evidence.
 - Counts of locally discovered user and trusted-project Skills without reporting their names. Untrusted-project Skills are not scanned and make coverage explicitly partial.
 - Symptom-aware Chrome compatibility triage for any selected third-party Responses model, including the runtime conditions around Direct versus Deferred namespace-tool exposure.
 - Provider authentication conflicts involving `requires_openai_auth`, `env_key`, command authentication, or a direct bearer token, with acknowledged intent kept separate from security risk.
@@ -169,7 +170,7 @@ Machine-readable report:
 codex-provider-doctor --json
 ```
 
-`solutions.health_checks` mirrors the default human report. Each entry contains `current_result`, `controlled_by`, `desired_state`, `how_to_change`, and `how_to_verify`; user-facing clients should render those fields instead of rebuilding a free-form summary from raw findings.
+`solutions.health_checks` mirrors the default human report. Each entry contains `current_result`, `exact_targets`, `controlled_by`, `desired_state`, `how_to_change`, and `how_to_verify`. Every `exact_targets` entry contains a normalized `location`, a `parameter`, and a redacted `current_value`; user-facing clients should render those fields instead of rebuilding a free-form summary from raw findings.
 
 Select the same profile used to launch Codex:
 

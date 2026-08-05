@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from codex_provider_doctor.common import MODEL_REPORT_FIELDS
@@ -241,6 +243,8 @@ def report_origins(config: dict[str, Any], origins: dict[str, str]) -> dict[str,
         "model_provider",
         "model_catalog_json",
         "web_search",
+        "features.apps",
+        "features.remote_plugin",
         "cli_auth_credentials_store",
         "model_context_window",
         "model_auto_compact_token_limit",
@@ -622,16 +626,89 @@ def _solution_result(
     status = _solution_status_label(item.get("status"), language)
     problem_id = item.get("id")
 
+    if problem_id == "keep-official-login":
+        provider = report["provider"]
+        auth = report["auth"]
+        built_in_openai = (
+            provider.get("id") == "openai"
+            and provider.get("name") == "OpenAI (built-in)"
+        )
+        if built_in_openai:
+            login_probe = auth.get("login_probe")
+            login_method = auth.get("login_method")
+            login_text = (
+                str(login_method)
+                if login_probe == "ok" and login_method
+                else "not verified" if language == "en"
+                else "未核验"
+            )
+            return (
+                f"Status: {status}. The built-in OpenAI Provider is active; the third-party dual-authentication block does not apply. Official sign-in: {login_text}."
+                if language == "en"
+                else f"当前结论是“{status}”。当前使用内置 OpenAI Provider，不适用第三方双认证配置块；官方登录：{login_text}。"
+            )
+        requires_openai_auth = _value(provider.get("requires_openai_auth"), "unset")
+        direct_token = (
+            "configured (value not read)"
+            if provider.get("direct_bearer_token_configured") is True
+            else "not configured"
+        )
+        if language == "zh-CN":
+            direct_token = (
+                "已配置（值未读取）"
+                if provider.get("direct_bearer_token_configured") is True
+                else "未配置"
+            )
+        login_probe = auth.get("login_probe")
+        login_method = auth.get("login_method")
+        if language == "en":
+            login_text = (
+                str(login_method)
+                if login_probe == "ok" and login_method
+                else "not verified"
+            )
+            return (
+                f"Status: {status}. requires_openai_auth = {requires_openai_auth}; "
+                f"direct provider token: {direct_token}; official sign-in: {login_text}."
+            )
+        login_text = (
+            str(login_method)
+            if login_probe == "ok" and login_method
+            else "未核验"
+        )
+        return (
+            f"当前结论是“{status}”。requires_openai_auth = {requires_openai_auth}；"
+            f"第三方直接 Token：{direct_token}；官方登录：{login_text}。"
+        )
+
     if problem_id == "plugins-or-skills-unavailable":
         count = report["skills"].get("total")
         count_text = str(count) if isinstance(count, int) else ("not verified" if language == "en" else "未核验")
+        features = report["plugins"].get("features", {})
+        apps = _value(features.get("apps"), "unset" if language == "en" else "未设置")
+        remote_plugin = _value(
+            features.get("remote_plugin"),
+            "unset" if language == "en" else "未设置",
+        )
         return (
-            f"Status: {status}. Local Skills found: {count_text}; real plugin use still depends on a new task."
+            f"Status: {status}. Local Skills found: {count_text}; features.apps = {apps}; "
+            f"features.remote_plugin = {remote_plugin}; real plugin use still depends on a new task."
             if language == "en"
-            else f"当前结论是“{status}”。本地 Skill 数量：{count_text}；插件能否调用仍以新任务为准。"
+            else f"当前结论是“{status}”。本地 Skill 数量：{count_text}；features.apps = {apps}；features.remote_plugin = {remote_plugin}；插件能否调用仍以新任务为准。"
         )
 
     if problem_id == "model-name-incorrect":
+        provider = report["provider"]
+        if (
+            provider.get("id") == "openai"
+            and provider.get("name") == "OpenAI (built-in)"
+            and report["effective"].get("model_catalog_json") is None
+        ):
+            return (
+                f"Status: {status}. The built-in OpenAI Provider is active; no custom model catalog is required. App Server, the Desktop picker, and a live request remain separate checks."
+                if language == "en"
+                else f"当前结论是“{status}”。当前使用内置 OpenAI Provider，无须配置自定义模型目录；仍需分别核对 App Server、Desktop 下拉框和真实请求。"
+            )
         selected = report["catalog"].get("selected_model")
         display_name = selected.get("display_name") if isinstance(selected, dict) else None
         name_text = str(display_name).strip() if isinstance(display_name, str) and display_name.strip() else ("not confirmed" if language == "en" else "未确认")
@@ -650,18 +727,569 @@ def _solution_result(
             else f"当前结论是“{status}”。绑定其他 Provider 的未归档任务：{affected_text}。"
         )
 
+    if problem_id == "chrome-unavailable":
+        provider = report["provider"]
+        if (
+            provider.get("id") == "openai"
+            and provider.get("name") == "OpenAI (built-in)"
+        ):
+            return (
+                f"Status: {status}. The built-in OpenAI Provider is active, so third-party catalog compatibility fields do not apply; verify Settings, the new-task tool list, and a live invocation."
+                if language == "en"
+                else f"当前结论是“{status}”。当前使用内置 OpenAI Provider，第三方模型目录兼容字段不适用；请核对设置页、新任务工具列表和真实调用。"
+            )
+        selected = report["catalog"].get("selected_model")
+        supports_search_tool = (
+            selected.get("supports_search_tool")
+            if isinstance(selected, dict)
+            else None
+        )
+        support_text = _value(
+            supports_search_tool,
+            "unset" if language == "en" else "未设置",
+        )
+        if language == "en":
+            return (
+                f"Status: {status}. supports_search_tool = {support_text}; this is a compatibility clue, "
+                "not a unique root cause. Confirm the plugin evidence, new-task tool list, and a live invocation separately."
+            )
+        return (
+            f"当前结论是“{status}”。supports_search_tool = {support_text}；这是兼容性线索，不是唯一根因。"
+            "仍需分别核对插件证据、新任务工具列表和真实调用。"
+        )
+
     summaries = {
         "en": {
             "keep-official-login": "Official sign-in, third-party request authentication, and credential storage were evaluated separately.",
-            "chrome-unavailable": "Static configuration is only a clue; the new-task tool list and a real invocation decide the final result.",
         },
         "zh-CN": {
             "keep-official-login": "官方登录、第三方请求认证和凭据存储已经分开判断。",
-            "chrome-unavailable": "静态配置只提供线索；新任务工具列表和真实调用才是最终结果。",
         },
     }
     summary = summaries[language].get(str(problem_id), str(item.get("diagnosis") or ""))
     return f"Status: {status}. {summary}" if language == "en" else f"当前结论是“{status}”。{summary}"
+
+
+@dataclass(frozen=True)
+class _HealthCheckContext:
+    report: dict[str, Any]
+    language: str
+    codex_home: Path | None
+    project_root: Path | None
+
+    def text(self, english: str, chinese: str) -> str:
+        return english if self.language == "en" else chinese
+
+    def target(self, location: str, parameter: str, current_value: str) -> dict[str, str]:
+        return {
+            "location": location,
+            "parameter": parameter,
+            "current_value": current_value,
+        }
+
+    def path(self, value: Any, *, missing: str = "$CODEX_HOME/config.toml") -> str:
+        if not isinstance(value, str) or not value:
+            return missing
+        if value.startswith("$") or value.startswith("<"):
+            return value
+        try:
+            path = Path(value).expanduser().resolve()
+        except (OSError, RuntimeError):
+            return "<external-path>"
+
+        layer = next(
+            (
+                entry
+                for entry in self.report.get("layers", [])
+                if isinstance(entry, dict) and entry.get("path") == value
+            ),
+            None,
+        )
+        if isinstance(layer, dict):
+            if layer.get("kind") == "system":
+                return "$SYSTEM_CONFIG"
+            if layer.get("kind") == "cli":
+                return "<command-line>"
+            if layer.get("kind") == "project":
+                project_path = self._relative_path(path, self.project_root, "$PROJECT_ROOT")
+                if project_path:
+                    return project_path
+
+        for root, label in (
+            (self.codex_home, "$CODEX_HOME"),
+            (self.project_root, "$PROJECT_ROOT"),
+        ):
+            safe_path = self._relative_path(path, root, label)
+            if safe_path:
+                return safe_path
+        return "<external-path>"
+
+    @staticmethod
+    def _relative_path(path: Path, root: Path | None, label: str) -> str | None:
+        if root is None:
+            return None
+        try:
+            relative = path.relative_to(root.expanduser().resolve())
+        except (ValueError, OSError, RuntimeError):
+            return None
+        return label if not relative.parts else f"{label}/{relative.as_posix()}"
+
+    def config(self, dotted_key: str, *, fallback_prefix: str | None = None) -> str:
+        origins = self.report.get("effective", {}).get("origins", {})
+        origin = origins.get(dotted_key) if isinstance(origins, dict) else None
+        if origin is None and fallback_prefix and isinstance(origins, dict):
+            origin = next(
+                (value for key, value in origins.items() if str(key).startswith(fallback_prefix)),
+                None,
+            )
+        return self.path(origin)
+
+    def feature(self, name: str) -> str:
+        value = self.report.get("plugins", {}).get("features", {}).get(name)
+        value_text = _value(value, self.text("unset", "未设置"))
+        if f"features.{name}" in self.report.get("effective", {}).get("origins", {}):
+            return value_text
+        return self.text(
+            f"{value_text} (default; not explicitly configured)",
+            f"{value_text}（默认值；未显式设置）",
+        )
+
+
+def _login_probe_state(context: _HealthCheckContext) -> str:
+    auth = context.report.get("auth", {})
+    if auth.get("login_probe") == "ok" and auth.get("login_method"):
+        return str(auth["login_method"])
+    if auth.get("login_probe") == "skipped":
+        return context.text("not run", "本次未运行")
+    return context.text("not verified", "未核验")
+
+
+def _auth_exact_targets(context: _HealthCheckContext) -> list[dict[str, str]]:
+    provider = context.report.get("provider", {})
+    auth = context.report.get("auth", {})
+    cache_state = context.text(
+        "file exists; content not read" if auth.get("cache_exists") else "file not found; content not read",
+        "文件存在；内容未读取" if auth.get("cache_exists") else "文件不存在；内容未读取",
+    )
+    common = [
+        context.target(
+            str(auth.get("cache_path") or "$CODEX_HOME/auth.json"),
+            context.text("Official sign-in cache", "官方登录缓存"),
+            cache_state,
+        ),
+        context.target(
+            "codex login status",
+            context.text("Official sign-in state", "官方登录状态"),
+            _login_probe_state(context),
+        ),
+    ]
+    if provider.get("id") == "openai" and provider.get("name") == "OpenAI (built-in)":
+        return [
+            context.target(
+                context.config("model_provider"),
+                "model_provider",
+                context.text("openai (built-in Provider)", "openai（内置 Provider）"),
+            ),
+            *common,
+        ]
+
+    provider_id = str(provider.get("id") or "<active-id>")
+    prefix = f"model_providers.{provider_id}."
+    section = f"[model_providers.{provider_id}]"
+    env_key = provider.get("env_key")
+    env_state = context.text("not configured", "未配置")
+    if env_key:
+        env_state = context.text(
+            "configured; present in the doctor environment"
+            if provider.get("env_key_is_set") is True
+            else "configured; absent from the doctor environment",
+            "已配置；当前诊断环境已注入"
+            if provider.get("env_key_is_set") is True
+            else "已配置；当前诊断环境未注入",
+        )
+    configured = context.text("configured", "已配置")
+    not_configured = context.text("not configured", "未配置")
+    return [
+        context.target(
+            context.config(f"{prefix}requires_openai_auth", fallback_prefix=prefix),
+            f"{section}.requires_openai_auth",
+            _value(provider.get("requires_openai_auth"), context.text("unset", "未设置")),
+        ),
+        context.target(
+            context.config(
+                f"{prefix}experimental_bearer_token",
+                fallback_prefix=prefix,
+            ),
+            f"{section}.experimental_bearer_token",
+            context.text("configured (value not read)", "已配置（值未读取）")
+            if provider.get("direct_bearer_token_configured") is True
+            else not_configured,
+        ),
+        context.target(
+            context.config(f"{prefix}env_key", fallback_prefix=prefix),
+            f"{section}.env_key",
+            env_state,
+        ),
+        context.target(
+            context.config(f"{prefix}auth", fallback_prefix=prefix),
+            f"{section}.auth",
+            configured if provider.get("auth_command_configured") is True else not_configured,
+        ),
+        *common,
+    ]
+
+
+def _skill_source_state(context: _HealthCheckContext, source: dict[str, Any]) -> str:
+    count = source.get("count")
+    if source.get("scope") == "user":
+        return (
+            context.text(str(count), f"{count} 个")
+            if isinstance(count, int)
+            else context.text("not verified", "未核验")
+        )
+    trust = source.get("trust_level")
+    if isinstance(count, int) and trust == "trusted":
+        return context.text(f"{count}; project trusted", f"{count} 个；项目已受信任")
+    if source.get("status") == "not_applicable":
+        return context.text(
+            "not applicable; no project root detected",
+            "不适用；未识别项目根目录",
+        )
+    return context.text(
+        f"not scanned; project trust: {trust or 'unknown'}",
+        f"未完整扫描；项目信任状态：{trust or 'unknown'}",
+    )
+
+
+def _plugins_exact_targets(context: _HealthCheckContext) -> list[dict[str, str]]:
+    targets = [
+        context.target(
+            str(source.get("path") or "<unknown>"),
+            context.text("Installed Skills", "已安装 Skill")
+            if source.get("scope") == "user"
+            else context.text("Project Skills", "项目 Skill"),
+            _skill_source_state(context, source),
+        )
+        for source in context.report.get("skills", {}).get("sources", [])
+        if isinstance(source, dict)
+    ]
+    targets.extend(
+        context.target(
+            context.config(f"features.{feature}"),
+            f"features.{feature}",
+            context.feature(feature),
+        )
+        for feature in ("apps", "remote_plugin")
+    )
+    inventory = context.report.get("plugins", {}).get("inventory_status")
+    targets.extend(
+        [
+            context.target(
+                "Codex → Settings → Plugins",
+                context.text(
+                    "Plugin enablement and connector authorization",
+                    "插件启用与连接器授权",
+                ),
+                context.text("manual verification required", "需在界面和真实调用中确认"),
+            ),
+            context.target(
+                "codex plugin list --json",
+                context.text("CLI plugin inventory", "CLI 插件清单"),
+                context.text(
+                    str(inventory or "unverified"),
+                    "已核验" if inventory == "verified" else "未核验",
+                ),
+            ),
+            context.target(
+                "New task → tool list",
+                context.text(
+                    "Expected Skill / plugin tool presence",
+                    "目标 Skill / 插件工具是否出现",
+                ),
+                context.text("runtime unverified", "运行时未核验"),
+            ),
+            context.target(
+                "New task → minimal live invocation",
+                context.text(
+                    "Expected Skill / plugin live invocation",
+                    "目标 Skill / 插件真实调用",
+                ),
+                context.text(
+                    "not run; verify each capability separately",
+                    "未执行；需逐项验证",
+                ),
+            ),
+        ]
+    )
+    return targets
+
+
+def _catalog_context(context: _HealthCheckContext) -> tuple[str, dict[str, Any]]:
+    catalog = context.report.get("catalog", {})
+    location = context.path(
+        catalog.get("path"),
+        missing="$CODEX_HOME/<model-catalog-not-configured>",
+    )
+    selected = catalog.get("selected_model")
+    return location, selected if isinstance(selected, dict) else {}
+
+
+def _model_exact_targets(context: _HealthCheckContext) -> list[dict[str, str]]:
+    effective = context.report.get("effective", {})
+    provider = context.report.get("provider", {})
+    built_in_openai = (
+        provider.get("id") == "openai"
+        and provider.get("name") == "OpenAI (built-in)"
+    )
+    if built_in_openai and not context.report.get("catalog", {}).get("path"):
+        return [
+            context.target(
+                context.config("model"),
+                "model",
+                str(effective.get("model") or context.text("not configured", "未配置")),
+            ),
+            context.target(
+                context.config("model_provider"),
+                "model_provider",
+                context.text("openai (built-in Provider)", "openai（内置 Provider）"),
+            ),
+            context.target(
+                "App Server → model/list",
+                context.text("Active model entry", "活动模型条目"),
+                context.text("manual verification required", "需手工核验"),
+            ),
+            context.target(
+                "Windows Desktop → model picker",
+                context.text("Displayed model name", "模型显示名称"),
+                context.text("not observable by the doctor", "doctor 无法自动观察"),
+            ),
+        ]
+    catalog_location, selected = _catalog_context(context)
+    slug = selected.get("slug")
+    display_name = selected.get("display_name")
+    return [
+        context.target(
+            context.config("model"),
+            "model",
+            str(effective.get("model") or context.text("not configured", "未配置")),
+        ),
+        context.target(
+            context.config("model_provider"),
+            "model_provider",
+            str(effective.get("model_provider") or "openai"),
+        ),
+        context.target(
+            context.config("model_catalog_json"),
+            "model_catalog_json",
+            catalog_location
+            if context.report.get("catalog", {}).get("path")
+            else context.text("not configured", "未配置"),
+        ),
+        context.target(
+            catalog_location,
+            "models[].slug",
+            context.text(f"{slug} (unique match)", f"{slug}（唯一匹配）")
+            if slug is not None
+            else context.text("not uniquely matched", "未唯一匹配"),
+        ),
+        context.target(
+            catalog_location,
+            "models[].display_name",
+            str(display_name).strip()
+            if isinstance(display_name, str) and display_name.strip()
+            else context.text("not configured", "未配置"),
+        ),
+        context.target(
+            "App Server → model/list",
+            context.text("Active model entry", "活动模型条目"),
+            context.text("manual verification required", "需手工核验"),
+        ),
+    ]
+
+
+def _history_binding_state(
+    context: _HealthCheckContext,
+    item: dict[str, Any],
+) -> str:
+    history = context.report.get("history", {})
+    current = history.get("current_provider")
+    counts = item.get("affected_provider_counts")
+    if isinstance(counts, list) and counts:
+        if context.language == "en":
+            summary = ", ".join(
+                f"{entry.get('provider')}: {entry.get('threads_unarchived')} unarchived"
+                for entry in counts
+                if isinstance(entry, dict)
+            )
+            return f"{summary}; active Provider: {current}"
+        summary = "、".join(
+            f"{entry.get('provider')}：{entry.get('threads_unarchived')} 个未归档"
+            for entry in counts
+            if isinstance(entry, dict)
+        )
+        return f"{summary}；当前 Provider：{current}"
+    if history.get("probe") == "ok":
+        return context.text(
+            f"no other-Provider unarchived tasks; active Provider: {current}",
+            f"未发现其他 Provider 的未归档任务；当前 Provider：{current}",
+        )
+    return context.text(
+        f"not verified; active Provider: {current}",
+        f"尚未核验；当前 Provider：{current}",
+    )
+
+
+def _history_exact_targets(
+    context: _HealthCheckContext,
+    item: dict[str, Any],
+) -> list[dict[str, str]]:
+    history = context.report.get("history", {})
+    database = str(
+        history.get("database_path")
+        or "$CODEX_HOME/<compatible-task-database-not-found>"
+    )
+    targets = [
+        context.target(database, "threads.model_provider", _history_binding_state(context, item)),
+    ]
+    current_provider = history.get("current_provider")
+    for counts in history.get("provider_counts") or []:
+        if not isinstance(counts, dict):
+            continue
+        provider = counts.get("provider")
+        suffix = context.text(" (active Provider)", "（当前 Provider）") if provider == current_provider else ""
+        targets.append(
+            context.target(
+                database,
+                f"threads.model_provider = {provider}",
+                context.text(
+                    f"total {counts.get('threads_total')}; unarchived {counts.get('threads_unarchived')}; archived {counts.get('threads_archived')}{suffix}",
+                    f"总数 {counts.get('threads_total')}；未归档 {counts.get('threads_unarchived')}；已归档 {counts.get('threads_archived')}{suffix}",
+                ),
+            )
+        )
+    targets.extend(
+        [
+        context.target(
+            database,
+            context.text("Database access mode", "数据库访问方式"),
+            context.text("read-only; task content not read", "只读；未读取任务正文"),
+        ),
+        context.target(
+            f"{database} + -wal + -shm",
+            context.text(
+                "Backup set before any future write",
+                "未来任何写入前的备份对象",
+            ),
+            context.text(
+                "not modified; separate explicit approval required",
+                "本次未修改；未来需单独明确确认",
+            ),
+        ),
+        ]
+    )
+    return targets
+
+
+def _chrome_exact_targets(context: _HealthCheckContext) -> list[dict[str, str]]:
+    provider = context.report.get("provider", {})
+    built_in_openai = (
+        provider.get("id") == "openai"
+        and provider.get("name") == "OpenAI (built-in)"
+    )
+    feature_targets = [
+        context.target(
+            context.config(f"features.{feature}"),
+            f"features.{feature}",
+            context.feature(feature),
+        )
+        for feature in ("apps", "remote_plugin")
+    ]
+    runtime_targets = [
+        context.target(
+            "Codex → Settings → Plugins",
+            context.text(
+                "Chrome enablement and connector authorization",
+                "Chrome 启用与连接器授权",
+            ),
+            context.text("manual verification required", "需手工核验"),
+        ),
+        context.target(
+            "New task → tool list",
+            context.text("Chrome tool exposure", "Chrome 工具是否出现"),
+            context.text("runtime unverified", "运行时未核验"),
+        ),
+    ]
+    if built_in_openai:
+        return [
+            context.target(
+                context.config("model_provider"),
+                "model_provider",
+                context.text("openai (built-in Provider)", "openai（内置 Provider）"),
+            ),
+            *feature_targets,
+            *runtime_targets,
+        ]
+    provider_id = str(provider.get("id") or "<active-id>")
+    prefix = f"model_providers.{provider_id}."
+    provider_location = context.config(f"{prefix}wire_api", fallback_prefix=prefix)
+    catalog_location, selected = _catalog_context(context)
+    support = _value(selected.get("supports_search_tool"), context.text("unset", "未设置"))
+    return [
+        context.target(
+            provider_location,
+            f"[model_providers.{provider_id}].wire_api",
+            str(provider.get("wire_api") or "responses"),
+        ),
+        context.target(
+            catalog_location,
+            "models[].supports_search_tool",
+            context.text(
+                f"{support} (compatibility clue, not a unique root cause)",
+                f"{support}（兼容性线索，不是唯一根因）",
+            ),
+        ),
+        context.target(
+            catalog_location,
+            "models[].tool_mode",
+            _value(selected.get("tool_mode"), context.text("unset", "未设置")),
+        ),
+        context.target(
+            catalog_location,
+            "models[].use_responses_lite",
+            _value(selected.get("use_responses_lite"), context.text("unset", "未设置")),
+        ),
+        *feature_targets,
+        *runtime_targets,
+    ]
+
+
+def _solution_exact_targets(
+    item: dict[str, Any],
+    report: dict[str, Any],
+    language: str,
+    *,
+    codex_home: Path | None,
+    project_root: Path | None,
+) -> list[dict[str, str]]:
+    context = _HealthCheckContext(report, language, codex_home, project_root)
+    problem_id = str(item.get("id"))
+    if problem_id == "keep-official-login":
+        return _auth_exact_targets(context)
+    if problem_id == "plugins-or-skills-unavailable":
+        return _plugins_exact_targets(context)
+    if problem_id == "model-name-incorrect":
+        return _model_exact_targets(context)
+    if problem_id == "history-missing":
+        return _history_exact_targets(context, item)
+    if problem_id == "chrome-unavailable":
+        return _chrome_exact_targets(context)
+    return [
+        context.target(
+            "$CODEX_HOME/config.toml",
+            "diagnostic target",
+            context.text("not verified", "未核验"),
+        )
+    ]
 
 
 def _solution_presentation(
@@ -672,6 +1300,34 @@ def _solution_presentation(
     details: bool,
 ) -> dict[str, Any]:
     problem_id = str(item.get("id"))
+    built_in_model = (
+        problem_id == "model-name-incorrect"
+        and report["provider"].get("id") == "openai"
+        and report["provider"].get("name") == "OpenAI (built-in)"
+        and report["effective"].get("model_catalog_json") is None
+    )
+    if built_in_model:
+        if language == "en":
+            return {
+                "controls": [
+                    "Built-in model availability: App Server model/list.",
+                    "Windows picker label: the Desktop selector, which the doctor cannot observe automatically.",
+                    "Actual routed model: one real request; the UI label is not proof.",
+                ],
+                "goal": "The built-in model appears consistently in App Server and Desktop, and a real request reaches the intended model.",
+                "actions": list(item.get("actions", [])),
+                "verification": "Compare App Server model/list, the Desktop picker, and one real request separately.",
+            }
+        return {
+            "controls": [
+                "内置模型是否可用：由 App Server 的 model/list 控制。",
+                "Windows 下拉框显示：由 Desktop 选择器控制，doctor 无法自动观察。",
+                "真正调用哪个模型：以一次真实请求为准；界面标签不能证明。",
+            ],
+            "goal": "内置模型在 App Server 与 Desktop 中状态一致，并由真实请求确认路由。",
+            "actions": list(item.get("actions", [])),
+            "verification": "分别核对 App Server model/list、Desktop 下拉框和一次真实请求。",
+        }
     template = SOLUTION_PRESENTATION[language].get(problem_id, {})
     values = {
         "provider_id": str(report["provider"].get("id") or "current"),
@@ -702,6 +1358,9 @@ def _build_solution_health_check(
     item: dict[str, Any],
     report: dict[str, Any],
     language: str,
+    *,
+    codex_home: Path | None = None,
+    project_root: Path | None = None,
 ) -> dict[str, Any]:
     presentation = _solution_presentation(
         item,
@@ -715,6 +1374,13 @@ def _build_solution_health_check(
         "status": item.get("status"),
         "status_label": _solution_status_label(item.get("status"), language),
         "current_result": _solution_result(item, report, language),
+        "exact_targets": _solution_exact_targets(
+            item,
+            report,
+            language,
+            codex_home=codex_home,
+            project_root=project_root,
+        ),
         "controlled_by": presentation["controls"],
         "desired_state": presentation["goal"],
         "how_to_change": presentation["actions"],
@@ -725,9 +1391,18 @@ def _build_solution_health_check(
 def build_solution_health_checks(
     report: dict[str, Any],
     language: str,
+    *,
+    codex_home: Path | None = None,
+    project_root: Path | None = None,
 ) -> list[dict[str, Any]]:
     return [
-        _build_solution_health_check(item, report, language)
+        _build_solution_health_check(
+            item,
+            report,
+            language,
+            codex_home=codex_home,
+            project_root=project_root,
+        )
         for item in report.get("solutions", {}).get("items", [])
     ]
 
@@ -759,12 +1434,21 @@ def _append_solution_guides(
         status = str(card["status_label"])
         lines.append(f"{index}. {item['title']} [{status}]" if language == "en" else f"{index}. {item['title']}【{status}】")
         result = str(card["current_result"])
+        exact_targets = card["exact_targets"]
         controls = card["controlled_by"]
         goal = str(card["desired_state"])
         verification = str(card["how_to_verify"])
         actions = list(item.get("actions", [])) if details else card["how_to_change"]
         if language == "en":
             lines.append(f"   Current result: {result}")
+            lines.append("   Exact locations / key parameters:")
+            lines.extend(
+                (
+                    f"   - {target['location']} → {target['parameter']}: "
+                    f"{target['current_value']}"
+                )
+                for target in exact_targets
+            )
             lines.append("   Controlled by:")
             lines.extend(f"   - {control}" for control in controls)
             lines.append(f"   Desired state: {goal}")
@@ -778,6 +1462,14 @@ def _append_solution_guides(
                 lines.append(f"   Technical diagnosis: {item['diagnosis']}")
         else:
             lines.append(f"   当前结果：{result}")
+            lines.append("   具体位置/关键参数：")
+            lines.extend(
+                (
+                    f"   - {target['location']} → {target['parameter']}："
+                    f"{target['current_value']}"
+                )
+                for target in exact_targets
+            )
             lines.append("   受什么控制：")
             lines.extend(f"   - {control}" for control in controls)
             lines.append(f"   目标状态：{goal}")

@@ -61,7 +61,11 @@ class SkillEntrypointTests(unittest.TestCase):
         )
         self.assertIn("Do not add `--json` for a normal diagnosis", skill_text)
         self.assertIn("preserve every health-check card", skill_text.lower())
+        self.assertIn("exact locations/key parameters", skill_text)
+        self.assertIn("exact_targets", skill_text)
         self.assertIn("不要为普通诊断添加 `--json`", prompt)
+        self.assertIn("具体位置/关键参数", prompt)
+        self.assertIn("$CODEX_HOME/...", prompt)
         self.assertIn("solutions.health_checks", prompt)
 
     def test_skill_and_docs_explain_acknowledged_intent_and_scoped_compatibility(self) -> None:
@@ -102,6 +106,8 @@ class SkillEntrypointTests(unittest.TestCase):
         self.assertIn("requires_openai_auth = true", readme_en)
         self.assertIn("Do not add it to the built-in `openai` Provider", readme_en)
         self.assertIn("do not stack", readme_en)
+        self.assertIn("exact_targets", readme_en)
+        self.assertIn("exact_targets", readme_zh)
         self.assertIn("project Skills only when the project is trusted", skill_text)
         self.assertIn("runtime_verification_required: true", compatibility)
         self.assertIn("保留官方登录态", readme_zh)
@@ -162,7 +168,7 @@ class SkillEntrypointTests(unittest.TestCase):
         self.assertEqual(report["effective"]["model_provider"], "thirdparty")
         self.assertEqual(report["catalog"]["selected_model"]["slug"], "deepseek-v4-flash")
 
-    def test_bundled_runner_defaults_to_the_five_field_human_health_check(self) -> None:
+    def test_bundled_runner_defaults_to_the_six_field_human_health_check(self) -> None:
         codex_home = FIXTURES / "profile-home"
         env = os.environ.copy()
         env.pop("PYTHONPATH", None)
@@ -193,6 +199,7 @@ class SkillEntrypointTests(unittest.TestCase):
         self.assertFalse(result.stdout.lstrip().startswith("{"))
         for label in (
             "当前结果：",
+            "具体位置/关键参数：",
             "受什么控制：",
             "目标状态：",
             "怎么处理：",

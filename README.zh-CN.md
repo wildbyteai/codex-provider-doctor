@@ -27,13 +27,14 @@ doctor 默认不再输出一串技术判断，而是把每个问题固定整理�
 ```text
 1. 检查项【状态】
    当前结果：现在到底怎么样
+   具体位置/关键参数：哪个文件或界面、哪个字段、当前值是什么
    受什么控制：哪些设置、登录或运行状态决定这个结果
    目标状态：正常时应该是什么样
    怎么处理：按顺序做什么
    怎么确认：用什么实际结果验收
 ```
 
-默认报告使用普通用户能理解的表达。`slug`、配置表位置、字段来源和完整证据只在确有必要时出现；使用 `--details` 才展开技术判断。
+默认报告使用普通用户能理解的表达，并直接列出完成排查所需的具体位置和关键参数。路径会安全归一化为 `$CODEX_HOME/...`、`$PROJECT_ROOT/...` 等形式；Token 只显示“已配置/未配置”，不会显示内容。使用 `--details` 才展开完整配置层、字段来源和技术判断。
 
 ## 使用 Skill（推荐）
 
@@ -51,7 +52,7 @@ doctor 默认不再输出一串技术判断，而是把每个问题固定整理�
 
 安装参数、仓库根目录和 Skill 名称由 Agent 自己处理。如果当前任务没有匹配到 Skill，再显式说“使用 `$codex-provider-doctor` 检查”。Agent 会自己运行仓库内置的只读检测入口，再用中文解释结果；不需要用户复制 `codex-provider-doctor` 命令。
 
-Skill 默认直接运行人类可读报告，不再先取 `--json` 后自由总结。Agent 必须保留工具输出的每张体检单及五个固定字段；只有机器集成需要 JSON 时，才读取 `solutions.health_checks`。这样同一份诊断不会因为不同电脑上的 Agent 总结习惯而重新变成散乱技术说明。
+Skill 默认直接运行人类可读报告，不再先取 `--json` 后自由总结。Agent 必须保留工具输出的每张体检单及六个固定字段；只有机器集成需要 JSON 时，才读取 `solutions.health_checks`。这样同一份诊断不会因为不同电脑上的 Agent 总结习惯而重新变成散乱技术说明。
 
 Skill 和命令行工具使用同一套诊断代码。Skill 不会全局安装 Python 包，不会创建虚拟环境，也不会在诊断阶段修改配置或数据库。当前仍需要本机存在 Python 3.11 或更高版本。
 
@@ -67,7 +68,7 @@ Skill 和命令行工具使用同一套诊断代码。Skill 不会全局安装 P
 - 当前 `model` 是否能在 `models[].slug` 中唯一匹配。
 - `display_name`、`tool_mode`、`supports_search_tool`、`use_responses_lite` 和上下文窗口配置。
 - 当模型目录字段已经正确时，给出 Windows Desktop 选择器条件式提醒，并明确区分静态目录、App Server 列表、桌面下拉框和真实请求四层证据。
-- 默认把 5 个问题分别整理为“当前结果、受什么控制、目标状态、怎么处理、怎么确认”，技术判断和字段证据通过 `--details` 展开。
+- 默认把 5 个问题分别整理为“当前结果、具体位置/关键参数、受什么控制、目标状态、怎么处理、怎么确认”；默认报告直接给出安全归一化的文件/界面位置、参数和当前值，`--details` 再展开完整配置层与技术证据。
 - 只统计用户级和可信项目级本地 Skill 数量，不输出 Skill 名称；项目不可信时不扫描项目 Skill，并明确标记覆盖不完整。
 - 面向一般第三方 Responses 模型的 Chrome 症状排查，并说明 Direct 与 Deferred namespace 工具暴露还受运行时条件影响。
 - 活动 Provider 的 `requires_openai_auth`、`env_key`、命令认证和明文 Token 冲突，并把已确认意图与独立安全风险分开。
@@ -201,7 +202,7 @@ codex-provider-doctor --details
 codex-provider-doctor --json
 ```
 
-JSON 中的 `solutions.health_checks` 与默认人类报告一一对应，每项固定包含：`current_result`、`controlled_by`、`desired_state`、`how_to_change` 和 `how_to_verify`。面向普通用户时优先直接使用默认报告，不要从原始 finding 重新组织一份自由格式总结。
+JSON 中的 `solutions.health_checks` 与默认人类报告一一对应，每项固定包含：`current_result`、`exact_targets`、`controlled_by`、`desired_state`、`how_to_change` 和 `how_to_verify`。`exact_targets` 中每条记录包含 `location`、`parameter` 和 `current_value`，路径已归一化，敏感值已脱敏。面向普通用户时优先直接使用默认报告，不要从原始 finding 重新组织一份自由格式总结。
 
 如果 Codex 是用某个 Profile 启动的，诊断时也要传同一个 Profile：
 
@@ -279,7 +280,7 @@ codex doctor
 - 插件报告新增 `inventory_status`；命令失败、JSON 无效或 JSON 结构不受支持时，`probe` 保持为 `failed`，清单状态诚实地保持为 `unverified`。
 - 模型目录报告新增 `model_count`。
 - 历史任务报告新增 `provider_counts`。
-- 报告新增本地 `skills` 数量，以及面向 5 个问题的 `solutions`；`solutions.health_checks` 固定保存与人类报告一致的五栏体检单，登录方案包含独立的官方登录核验状态，历史方案包含受影响旧 Provider 的聚合数量。
+- 报告新增本地 `skills` 数量，以及面向 5 个问题的 `solutions`；`solutions.health_checks` 固定保存与人类报告一致的六栏体检单，其中 `exact_targets` 提供安全归一化的位置、字段和当前值。登录方案包含独立的官方登录核验状态，历史方案包含受影响旧 Provider 的聚合数量。
 - 兼容报告新增一般 Chrome 排查使用的 `symptom_assessments`，以及带日期规则使用的 `field_assessments` 和 `observed_differences`；`suggested_changes` 不包含只按症状观察的字段。
 - JSON finding 数组保持诊断生成顺序；优先级排序只用于人类可读报告，不改变机器输出顺序。
 

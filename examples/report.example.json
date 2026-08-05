@@ -115,6 +115,23 @@
         "status": "binding_mismatch_detected",
         "status_label": "provider mismatch detected",
         "current_result": "Status: provider mismatch detected. Unarchived tasks bound to another Provider: 2.",
+        "exact_targets": [
+          {
+            "location": "$CODEX_HOME/session-index.local.db",
+            "parameter": "threads.model_provider",
+            "current_value": "openai: 2 unarchived; active Provider: thirdparty"
+          },
+          {
+            "location": "$CODEX_HOME/session-index.local.db",
+            "parameter": "Database access mode",
+            "current_value": "read-only; task content not read"
+          },
+          {
+            "location": "$CODEX_HOME/session-index.local.db + -wal + -shm",
+            "parameter": "Backup set before any future write",
+            "current_value": "not modified; separate explicit approval required"
+          }
+        ],
         "controlled_by": [
           "Current task-list context: the active Provider (thirdparty).",
           "Stored task ownership: the Provider saved when each task was created.",
