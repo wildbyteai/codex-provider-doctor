@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
 
 from tests.test_cli_catalog import run_doctor
+from tests.test_cli_runtime import install_fake_codex
 
 
 class CompatibilityRuleTests(unittest.TestCase):
@@ -13,7 +15,9 @@ class CompatibilityRuleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             codex_home = root / "codex-home"
+            bin_directory = root / "bin"
             codex_home.mkdir()
+            bin_directory.mkdir()
             (codex_home / "catalog.json").write_text(
                 json.dumps(
                     {
@@ -34,6 +38,7 @@ class CompatibilityRuleTests(unittest.TestCase):
                 '\n'.join(['model = "gpt-5.6"', 'model_catalog_json = "catalog.json"']),
                 encoding="utf-8",
             )
+            install_fake_codex(bin_directory, version="0.999.0")
 
             result = run_doctor(
                 "--codex-home",
@@ -42,8 +47,10 @@ class CompatibilityRuleTests(unittest.TestCase):
                 str(root / "missing-system.toml"),
                 "--compat-rule",
                 "deepseek-direct-tools-2026-08-03",
-                "--no-command-checks",
                 "--json",
+                extra_env={
+                    "PATH": f"{bin_directory}{os.pathsep}{os.environ.get('PATH', '')}",
+                },
             )
 
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -129,7 +136,74 @@ class CompatibilityRuleTests(unittest.TestCase):
                 },
             )
 
-    def test_deepseek_direct_tools_rule_returns_scoped_suggested_changes(self) -> None:
+    def test_deepseek_rule_is_not_applicable_to_an_official_model_in_a_custom_catalog(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            codex_home = root / "codex-home"
+            codex_home.mkdir()
+            (codex_home / "catalog.json").write_text(
+                json.dumps(
+                    {
+                        "models": [
+                            {
+                                "slug": "gpt-5.6-sol",
+                                "display_name": "GPT-5.6-Sol",
+                                "tool_mode": "code_mode_only",
+                                "supports_search_tool": True,
+                                "use_responses_lite": False,
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (codex_home / "config.toml").write_text(
+                "\n".join(
+                    [
+                        'model = "gpt-5.6-sol"',
+                        'model_provider = "custom"',
+                        'model_catalog_json = "catalog.json"',
+                        "",
+                        "[model_providers.custom]",
+                        'base_url = "https://api.example.invalid/v1"',
+                        'wire_api = "responses"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            result = run_doctor(
+                "--codex-home",
+                str(codex_home),
+                "--system-config",
+                str(root / "missing-system.toml"),
+                "--compat-rule",
+                "deepseek-direct-tools-2026-08-03",
+                "--no-command-checks",
+                "--json",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            report = json.loads(result.stdout)
+            rule = report["compatibility"]["rules"][0]
+            self.assertEqual(
+                {
+                    "applicability": rule["applicability"],
+                    "reason": rule["applicability_reason"],
+                    "assessments": rule["field_assessments"],
+                    "changes": rule["suggested_changes"],
+                    "finding_codes": [finding["code"] for finding in report["findings"]],
+                },
+                {
+                    "applicability": "not_applicable",
+                    "reason": "selected_model_outside_rule_scope",
+                    "assessments": [],
+                    "changes": [],
+                    "finding_codes": [],
+                },
+            )
+
+    def test_deepseek_direct_tools_rule_separates_required_and_symptom_driven_fields(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             codex_home = root / "codex-home"
@@ -143,7 +217,7 @@ class CompatibilityRuleTests(unittest.TestCase):
                                 "display_name": "DeepSeek V4 Flash",
                                 "tool_mode": "code_mode_only",
                                 "supports_search_tool": True,
-                                "use_responses_lite": True,
+                                "use_responses_lite": False,
                             }
                         ]
                     }
@@ -184,18 +258,109 @@ class CompatibilityRuleTests(unittest.TestCase):
                 {
                     "id": rule["id"],
                     "scope": rule["scope"],
+                    "field_assessments": rule["field_assessments"],
+                    "observed_differences": rule["observed_differences"],
                     "changes": rule["suggested_changes"],
                     "finding_codes": [finding["code"] for finding in report["findings"]],
                 },
                 {
                     "id": "deepseek-direct-tools-2026-08-03",
                     "scope": "Codex 0.146.0-alpha.9.2 + one observed third-party API combination",
-                    "changes": [
+                    "field_assessments": [
+                        {
+                            "field": "tool_mode",
+                            "observed": "code_mode_only",
+                            "case_value": "direct",
+                            "status": "review_if_symptomatic",
+                        },
+                        {
+                            "field": "supports_search_tool",
+                            "observed": True,
+                            "case_value": False,
+                            "status": "change_recommended",
+                        },
+                        {
+                            "field": "use_responses_lite",
+                            "observed": False,
+                            "case_value": False,
+                            "status": "aligned",
+                        },
+                    ],
+                    "observed_differences": [
                         {"field": "tool_mode", "from": "code_mode_only", "to": "direct"},
                         {"field": "supports_search_tool", "from": True, "to": False},
-                        {"field": "use_responses_lite", "from": True, "to": False},
+                    ],
+                    "changes": [
+                        {"field": "supports_search_tool", "from": True, "to": False},
                     ],
                     "finding_codes": ["compat.deepseek_direct_tools.mismatch"],
+                },
+            )
+
+    def test_tool_mode_difference_alone_is_not_reported_as_a_required_change(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            codex_home = root / "codex-home"
+            codex_home.mkdir()
+            (codex_home / "catalog.json").write_text(
+                json.dumps(
+                    {
+                        "models": [
+                            {
+                                "slug": "deepseek-v4-flash",
+                                "display_name": "DeepSeek V4 Flash",
+                                "tool_mode": "code_mode_only",
+                                "supports_search_tool": False,
+                                "use_responses_lite": False,
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (codex_home / "config.toml").write_text(
+                "\n".join(
+                    [
+                        'model = "deepseek-v4-flash"',
+                        'model_provider = "thirdparty"',
+                        'model_catalog_json = "catalog.json"',
+                        "",
+                        "[model_providers.thirdparty]",
+                        'base_url = "https://api.example.invalid/v1"',
+                        'wire_api = "responses"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            result = run_doctor(
+                "--codex-home",
+                str(codex_home),
+                "--system-config",
+                str(root / "missing-system.toml"),
+                "--compat-rule",
+                "deepseek-direct-tools-2026-08-03",
+                "--no-command-checks",
+                "--json",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            report = json.loads(result.stdout)
+            rule = report["compatibility"]["rules"][0]
+            self.assertEqual(
+                {
+                    "observed_differences": rule["observed_differences"],
+                    "suggested_changes": rule["suggested_changes"],
+                    "tool_mode_status": rule["field_assessments"][0]["status"],
+                    "finding_codes": [finding["code"] for finding in report["findings"]],
+                },
+                {
+                    "observed_differences": [
+                        {"field": "tool_mode", "from": "code_mode_only", "to": "direct"},
+                    ],
+                    "suggested_changes": [],
+                    "tool_mode_status": "review_if_symptomatic",
+                    "finding_codes": [],
                 },
             )
 

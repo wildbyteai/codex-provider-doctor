@@ -17,6 +17,8 @@ OPENAI_YAML = REPO_ROOT / "agents" / "openai.yaml"
 SKILL_RUNNER = REPO_ROOT / "scripts" / "run_skill.py"
 README_ZH = REPO_ROOT / "README.zh-CN.md"
 README_EN = REPO_ROOT / "README.md"
+COMPATIBILITY_DOC = REPO_ROOT / "docs" / "COMPATIBILITY.md"
+HISTORY_DOC = REPO_ROOT / "docs" / "HISTORY-PROVIDER.md"
 
 
 class SkillEntrypointTests(unittest.TestCase):
@@ -42,6 +44,24 @@ class SkillEntrypointTests(unittest.TestCase):
         self.assertIn("live smoke test", skill_text)
         self.assertIn("Settings or Plugins page", skill_text)
         self.assertIn("does not prove that a plugin is absent or broken", skill_text)
+        self.assertIn("does not change exit code 0 by itself", skill_text)
+
+    def test_skill_and_docs_explain_acknowledged_intent_and_scoped_compatibility(self) -> None:
+        skill_text = SKILL_FILE.read_text(encoding="utf-8")
+        readme_zh = README_ZH.read_text(encoding="utf-8")
+        readme_en = README_EN.read_text(encoding="utf-8")
+        compatibility = COMPATIBILITY_DOC.read_text(encoding="utf-8")
+        history = HISTORY_DOC.read_text(encoding="utf-8")
+
+        acknowledgement = "--acknowledge provider.auth.openai_with_direct_token"
+        self.assertIn(acknowledgement, skill_text)
+        self.assertIn(acknowledgement, readme_zh)
+        self.assertIn(acknowledgement, readme_en)
+        self.assertIn("Catalog model count", readme_en)
+        self.assertIn("模型目录条目总数", readme_zh)
+        self.assertIn("official model", compatibility)
+        self.assertIn("review_if_symptomatic", compatibility)
+        self.assertIn("provider_counts", history)
 
     def test_readme_install_prompt_only_requires_the_repository_url(self) -> None:
         readme_zh = README_ZH.read_text(encoding="utf-8")

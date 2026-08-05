@@ -50,11 +50,12 @@
 四、核对活动模型
 
 1. 解析模型目录 JSON，确认顶层是对象，models 是数组。
-2. 用最终生效的 model 精确匹配 models[].slug，大小写、连字符和版本后缀都必须一致。
-3. 必须恰好匹配一条；零条或重复都要报错。
-4. 只输出活动条目的这些字段：slug、display_name、context_window、effective_context_window_percent、auto_compact_token_limit、tool_mode、supports_search_tool、use_responses_lite。
-5. display_name 缺失或为空时，说明这会导致模型列表只显示 slug 或名称不清楚，但不要替我编造名称。
-6. 分开显示顶层 web_search 和模型条目的 supports_search_tool，不要把它们当成同一个参数。
+2. 先报告 models 条目总数，但不要完整输出所有模型条目。
+3. 用最终生效的 model 精确匹配 models[].slug，大小写、连字符和版本后缀都必须一致。
+4. 必须恰好匹配一条；零条或重复都要报错。
+5. 只输出活动条目的这些字段：slug、display_name、context_window、effective_context_window_percent、auto_compact_token_limit、tool_mode、supports_search_tool、use_responses_lite。
+6. display_name 缺失或为空时，说明这会导致模型列表只显示 slug 或名称不清楚，但不要替我编造名称。
+7. 分开显示顶层 web_search 和模型条目的 supports_search_tool，不要把它们当成同一个参数。
 
 如果我正在排查 2026-08-03 已观察到的 DeepSeek/第三方接口兼容案例，请只做差异对比：
 
@@ -64,7 +65,7 @@
   "use_responses_lite": false
 }
 
-必须同时写清：这只是在 Codex 0.146.0-alpha.9.2 和一个第三方接口组合中观察到的配置，不是所有第三方模型的默认值；当前 Codex 版本不同时必须重新验证。不要自动修改 JSON。
+必须同时写清：这只是在 Codex 0.146.0-alpha.9.2 和一个第三方 DeepSeek Responses 接口组合中观察到的配置，不是所有第三方模型的默认值；官方模型即使位于同一模型目录也不适用。`supports_search_tool = false` 和 `use_responses_lite = false` 是该案例建议值；`tool_mode = direct` 只在直接工具出现症状时核对，当前 `code_mode_only` 已正常时不写成必改项。当前 Codex 版本不同时必须重新验证。不要自动修改 JSON。
 
 五、核对 Provider 认证
 
@@ -74,8 +75,9 @@
 4. requires_openai_auth = true 的准确含义是“这个 Provider 使用 OpenAI 认证”；此时 Codex 会忽略 env_key。
 5. 它不是“保留官方 ChatGPT 登录态”的通用开关。第三方接口使用自己的 API Key 时，通常应使用 env_key，并把官方登录态作为另一项独立检查。
 6. 明确冲突要报错：requires_openai_auth = true 时 env_key 会被忽略；env_key 和 experimental_bearer_token 会竞争 Provider Token；[model_providers.<id>.auth] 不能再和其他认证字段组合。
-7. requires_openai_auth = true 与 experimental_bearer_token 同时存在时，不要直接判成必然错误。说明它可能被用来保留官方登录入口，同时给 Provider 请求提供显式 Token，但这依赖具体 Codex 版本，而且 Token 明文存储。只给风险警告和版本化验证建议，不自动删除字段。
-8. 对 env_key 只检查当前启动环境中是否存在非空值，不读取或输出值。
+7. requires_openai_auth = true 与 experimental_bearer_token 同时存在时，不要直接判成必然错误。说明它可能被用来保留官方登录入口，同时给 Provider 请求提供显式 Token，但这依赖具体 Codex 版本。用户尚未确认意图时标记为 info / unverified；用户明确确认后标记为 acknowledged / intentional，不再把它列为最可能根因。
+8. Token 明文存储必须作为独立 warning 保留，不能因为认证意图已确认而隐藏。
+9. 对 env_key 只检查当前启动环境中是否存在非空值，不读取或输出值。
 
 六、分别确认官方登录、插件和 Chrome
 
@@ -83,7 +85,7 @@
 2. 运行 codex plugin list --json。兼容顶层 installed/available 结构，也兼容旧数组结构；报告只保留插件总数，以及精确匹配到的 Chrome installed 和 enabled 聚合状态，不输出其他插件名称或标识符。
 3. 检查 features.apps 和 features.remote_plugin 是否被关闭。
 4. 确认 Chrome 插件已安装并开启。
-5. 按证据强弱判断插件与 Chrome 状态：实际调用成功 > 当前任务已提供目标工具或设置页面可见 > codex plugin list --json 成功 > 静态配置推断。CLI 探针失败或输出无法解析，只表示清单未核验，不能据此判断插件不存在、未开启或损坏；界面或实际调用正常时，不建议重装插件或清理缓存。
+5. 按证据强弱判断插件与 Chrome 状态：实际调用成功 > 当前任务已提供目标工具或设置页面可见 > codex plugin list --json 成功 > 静态配置推断。CLI 探针失败或输出无法解析，只表示清单未核验，必须标成 info / unverified，单独出现时不改变退出码 0；界面或实际调用正常时，不建议重装插件或清理缓存。
 6. 人工检查必须列出：
    - 使用的是 Google Chrome，不是其他 Chromium 浏览器；
    - 当前 Chrome Profile 正是安装并启用 ChatGPT 扩展的 Profile；
@@ -98,7 +100,7 @@
 1. 不要假设数据库固定叫 state_5.sqlite。
 2. 只在 CODEX_HOME 和 CODEX_HOME/sqlite 下发现 .db、.sqlite、.sqlite3 候选文件，再用表结构确认是否存在 threads.model_provider。
 3. SQLite 必须用只读模式，并开启 query_only。
-4. 只统计：任务总数、绑定当前 Provider 的数量、绑定其他 Provider 的数量、其中未归档数量。
+4. 只统计：任务总数、绑定当前 Provider 的数量、绑定其他 Provider 的数量、其中未归档数量；并按每个 model_provider 给出全部、未归档和已归档数量。
 5. 不读取任务标题、消息、预览或正文。
 6. 如果存在未归档的其他 Provider 任务，说明：任务文件可能仍在，但在会按 Provider 过滤任务的版本里可能不显示。这是本地观察，不是所有 Codex 版本的官方保证。
 7. 本轮禁止 UPDATE、迁移、删除、VACUUM、覆盖数据库或复制 auth.json。
@@ -107,7 +109,7 @@
 
 请按下面结构输出：
 
-1. 总结：错误数、警告数、最可能原因。
+1. 总结：错误数、警告数、info 数、未核验数、已确认意图数，以及真正的首要诊断。
 2. 生效配置层：每层是否存在、是否加载、关键来源。
 3. 模型目录：实际路径和活动模型字段。
 4. Provider 认证：官方登录和第三方认证分开写。
@@ -123,6 +125,10 @@ codex-provider-doctor --json
 如果我明确说正在核对 2026-08-03 的兼容案例，再加：
 
 --compat-rule deepseek-direct-tools-2026-08-03
+
+如果我已经明确确认 requires_openai_auth = true 与 experimental_bearer_token 的组合就是有意设计，再加：
+
+--acknowledge provider.auth.openai_with_direct_token
 
 如果 Codex 是用 Profile 启动的，必须同时传同一个 --profile。
 ```

@@ -26,13 +26,14 @@ Codex handles the repository path, Skill name, and installer arguments. If the c
 
 - The effective system, user, profile, trusted-project, and command-line configuration layers.
 - The actual `model_catalog_json` selected by those layers. It does not assume a filename such as `models.custom.json`.
+- Catalog model count, without dumping every model entry.
 - Relative catalog paths, resolved from the config file that declared the winning value.
 - The active `model` and its exact `models[].slug` match.
 - Model display metadata, `tool_mode`, `supports_search_tool`, `use_responses_lite`, context window, and compact limits.
-- Provider authentication conflicts involving `requires_openai_auth`, `env_key`, command authentication, or a direct bearer token.
+- Provider authentication conflicts involving `requires_openai_auth`, `env_key`, command authentication, or a direct bearer token, with acknowledged intent kept separate from security risk.
 - Official Codex login state plus a plugin count and exact Chrome status when the redacted, read-only CLI probe succeeds; otherwise the inventory remains explicitly unverified. Other plugin names are not reported.
 - Chrome installation and enablement signals, followed by a manual acceptance checklist.
-- Read-only aggregate counts for local tasks whose stored `model_provider` differs from the active provider.
+- Read-only aggregate task counts grouped by `model_provider`, including total, unarchived, and archived rows.
 
 ## The four common symptoms
 
@@ -52,7 +53,7 @@ The CLI plugin probe is one evidence source, not the final authority on runtime 
 3. A successful `codex plugin list --json` result.
 4. Static configuration and manual inference.
 
-If the CLI command fails or returns an unsupported format, the plugin inventory is unverified. That result does not prove a plugin is missing, disabled, or broken. Do not reinstall plugins or clear caches when the UI or a live invocation already works; consider repair only when those stronger checks also fail.
+If the CLI command fails or returns an unsupported format, the plugin inventory is `unverified`. The finding is informational and does not change exit code `0` by itself. A successful CLI inventory that does not confirm Chrome is also lower-priority evidence, not proof of a runtime failure. Do not reinstall plugins or clear caches when the UI or a live invocation already works; consider repair only when those stronger checks also fail.
 
 ## Safety model
 
@@ -100,6 +101,13 @@ Select the same profile used to launch Codex:
 codex-provider-doctor --profile work
 ```
 
+After the user explicitly confirms that official sign-in plus an explicit provider token is intentional, record that intent without hiding the plaintext-token warning:
+
+```shell
+codex-provider-doctor \
+  --acknowledge provider.auth.openai_with_direct_token
+```
+
 Compare the selected model with one dated compatibility case:
 
 ```shell
@@ -117,13 +125,21 @@ The compatibility rule proposes, but never applies:
 }
 ```
 
-This combination was observed with Codex `0.146.0-alpha.9.2` and one third-party API setup. It is a troubleshooting case, not a universal default. `supports_search_tool` is also not the same setting as top-level `web_search`.
+This combination was observed with Codex `0.146.0-alpha.9.2` and one third-party DeepSeek Responses API setup. The rule applies only when the selected catalog model is a DeepSeek model on that kind of third-party provider. An official model remains outside the rule even when it appears in the same custom catalog.
+
+The report evaluates all three fields, but it does not treat them identically:
+
+- `supports_search_tool = false`: recommended for the selected third-party DeepSeek case; it is not a recommendation for official models.
+- `use_responses_lite = false`: recommended for the same dated case.
+- `tool_mode = direct`: `review_if_symptomatic`; keep `code_mode_only` when direct tools already work and no matching symptom has been observed.
+
+`supports_search_tool` is model-catalog metadata and is not the same setting as top-level `web_search`.
 
 ## Authentication is three separate questions
 
 `requires_openai_auth = true` means that the selected provider uses OpenAI authentication. Codex then ignores that provider's `env_key`. It is not a general switch for preserving an official ChatGPT login while another provider uses its own API key.
 
-Some observed setups combine `requires_openai_auth = true` with `experimental_bearer_token` to keep the official sign-in surface while supplying an explicit token for provider requests. The doctor reports this as version-sensitive and warns that the token is stored in plaintext; it does not automatically label the pair as a fatal conflict.
+Some observed setups combine `requires_openai_auth = true` with `experimental_bearer_token` to keep the official sign-in surface while supplying an explicit token for provider requests. The doctor reports the combination as `info` / `unverified` until the user confirms the intent. After explicit confirmation, pass `--acknowledge provider.auth.openai_with_direct_token`; the finding becomes acknowledged and intentional instead of a suspected root cause. The independent plaintext-token warning remains.
 
 Diagnose these independently:
 
@@ -133,7 +149,7 @@ Diagnose these independently:
 
 ## Why older tasks can disappear
 
-The doctor looks for a compatible local database by schema, not by a hard-coded filename. If unarchived task rows use a different `model_provider`, it reports the count and explains why provider-filtered builds may not show them.
+The doctor looks for a compatible local database by schema, not by a hard-coded filename. It reports aggregate counts for every stored `model_provider`: total, unarchived, and archived. If unarchived rows use a different provider, it also explains why provider-filtered builds may not show them.
 
 This is an observed local implementation detail, not a promise that every Codex version filters history the same way. See [History and provider bindings](docs/HISTORY-PROVIDER.md) before considering any database repair.
 
@@ -146,6 +162,20 @@ codex doctor
 ```
 
 Then use this project for provider-specific catalog resolution, compatibility metadata, Chrome/plugin checks, and history-provider mismatch reporting.
+
+## Finding levels and JSON compatibility
+
+`schema_version` remains `1`. Existing top-level fields and the plugin `probe` value are retained. This update adds fields rather than exposing raw evidence:
+
+- Every finding now has `severity`, `status`, `category`, and `intentional`.
+- Summary adds `info`, `unverified`, `acknowledged`, and `intentional` counts.
+- Plugin reports add `inventory_status`; command failure, invalid JSON, or an unsupported JSON shape remains `probe: "failed"` with an honestly `unverified` inventory.
+- Catalog reports add `model_count`.
+- History reports add `provider_counts`.
+- Compatibility reports add `field_assessments` and `observed_differences`. `suggested_changes` now excludes a symptom-only `tool_mode` difference.
+- JSON findings keep diagnostic generation order for compatibility. Priority sorting is applied only when rendering the human-readable report.
+
+Exit codes still depend only on errors and warnings: `0` for neither, `1` for warnings, `2` for errors, and `3` when the doctor cannot finish safely.
 
 ## Documentation
 

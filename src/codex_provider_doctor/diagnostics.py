@@ -25,6 +25,7 @@ def inspect_catalog(
         "exists": None,
         "is_file": None,
         "valid": None,
+        "model_count": None,
         "selected_model": None,
     }
     configured_catalog = config.get("model_catalog_json")
@@ -42,6 +43,7 @@ def inspect_catalog(
         "exists": catalog_path.exists(),
         "is_file": catalog_path.is_file(),
         "valid": None,
+        "model_count": None,
         "selected_model": None,
     }
     if not catalog_path.exists():
@@ -109,6 +111,7 @@ def inspect_catalog(
         return report, catalog_path, selected_model
 
     report["valid"] = True
+    report["model_count"] = len(catalog["models"])
     matches = [
         entry
         for entry in catalog["models"]
@@ -156,7 +159,12 @@ def inspect_catalog(
     return report, catalog_path, selected_model
 
 
-def provider_report(config: dict[str, Any], findings: list[Finding]) -> dict[str, Any]:
+def provider_report(
+    config: dict[str, Any],
+    findings: list[Finding],
+    acknowledgements: set[str] | None = None,
+) -> dict[str, Any]:
+    acknowledgements = acknowledgements or set()
     if "requires_openai_auth" in config:
         findings.append(
             finding(
@@ -183,6 +191,7 @@ def provider_report(config: dict[str, Any], findings: list[Finding]) -> dict[str
             "env_key_is_set": None,
             "auth_command_configured": False,
             "direct_bearer_token_configured": False,
+            "authentication_intent": None,
         }
 
     if not isinstance(provider, dict):
@@ -206,6 +215,7 @@ def provider_report(config: dict[str, Any], findings: list[Finding]) -> dict[str
             "env_key_is_set": None,
             "auth_command_configured": False,
             "direct_bearer_token_configured": False,
+            "authentication_intent": None,
         }
 
     requires_openai_auth = provider.get("requires_openai_auth") is True
@@ -213,6 +223,7 @@ def provider_report(config: dict[str, Any], findings: list[Finding]) -> dict[str
     env_key_is_set = bool(os.environ.get(env_key)) if env_key else None
     auth_command_configured = isinstance(provider.get("auth"), dict)
     direct_token_configured = "experimental_bearer_token" in provider
+    authentication_intent: dict[str, Any] | None = None
 
     if requires_openai_auth and env_key:
         findings.append(
@@ -244,13 +255,32 @@ def provider_report(config: dict[str, Any], findings: list[Finding]) -> dict[str
             )
         )
     if requires_openai_auth and direct_token_configured:
+        intent_code = "provider.auth.openai_with_direct_token"
+        intent_acknowledged = intent_code in acknowledgements
+        authentication_intent = {
+            "combination": "openai_auth_with_explicit_bearer_token",
+            "status": "acknowledged" if intent_acknowledged else "unverified",
+            "intentional": True if intent_acknowledged else None,
+            "acknowledgement_code": intent_code,
+        }
         findings.append(
             finding(
-                "provider.auth.openai_with_direct_token",
-                "warning",
-                "Provider 同时要求官方登录并配置了显式 Bearer Token",
-                "这种组合可能被用来保留官方登录入口，同时给 Provider 请求提供显式 Token；它依赖具体 Codex 版本和实现细节，不能当作通用配置。",
-                "先确认这是有意设计，并在当前版本分别验证登录、模型请求、Skill 和插件。不要因为看到警告就直接删除任一字段。",
+                intent_code,
+                "info",
+                "认证组合已确认为有意" if intent_acknowledged else "认证组合意图尚未确认",
+                (
+                    "用户已明确确认：保留官方 ChatGPT/Codex 登录入口，同时让第三方 Provider 请求使用显式 Token。这仍是依赖具体 Codex 版本和实现的兼容配置，不是通用安全默认。"
+                    if intent_acknowledged
+                    else "这种组合可能用于保留官方登录入口，同时给第三方 Provider 请求提供显式 Token；当前只能确认配置存在，不能推断用户意图。"
+                ),
+                (
+                    "按已确认意图保留当前行为，并在升级 Codex 后重新验证登录、模型请求、Skill 和插件；不要把这项继续列为当前故障的首要根因。"
+                    if intent_acknowledged
+                    else "只有用户明确确认该设计意图后，才使用 --acknowledge provider.auth.openai_with_direct_token 记录确认；在此之前不要自动删除任一字段。"
+                ),
+                status="acknowledged" if intent_acknowledged else "unverified",
+                category="intent",
+                intentional=True if intent_acknowledged else None,
             )
         )
     if (
@@ -282,6 +312,7 @@ def provider_report(config: dict[str, Any], findings: list[Finding]) -> dict[str
                 "配置文件中存在直接 Bearer Token",
                 "检测到 experimental_bearer_token；报告不会读取或显示它的值。",
                 remedy,
+                category="security",
             )
         )
 
@@ -298,6 +329,7 @@ def provider_report(config: dict[str, Any], findings: list[Finding]) -> dict[str
         "env_key_is_set": env_key_is_set,
         "auth_command_configured": auth_command_configured,
         "direct_bearer_token_configured": direct_token_configured,
+        "authentication_intent": authentication_intent,
     }
 
 
@@ -327,15 +359,42 @@ def compatibility_report(
             applicability_reason = "provider_missing"
         elif provider.get("wire_api") != "responses":
             applicability_reason = "provider_wire_api_not_responses"
+        elif selected_model is None:
+            applicability_reason = "selected_model_unavailable"
+        elif not any(
+            isinstance(selected_model.get(field), str)
+            and "deepseek" in selected_model[field].casefold()
+            for field in ("slug", "display_name")
+        ):
+            applicability_reason = "selected_model_outside_rule_scope"
         else:
             applicability_reason = None
         applicable = applicability_reason is None
-        changes = []
+        field_assessments: list[dict[str, Any]] = []
+        observed_differences: list[dict[str, Any]] = []
+        changes: list[dict[str, Any]] = []
         if applicable and selected_model is not None:
             for field, expected in recommended.items():
                 observed = selected_model.get(field)
-                if observed != expected:
-                    changes.append({"field": field, "from": observed, "to": expected})
+                differs = observed != expected
+                if differs:
+                    observed_differences.append(
+                        {"field": field, "from": observed, "to": expected}
+                    )
+                if field == "tool_mode":
+                    assessment_status = "review_if_symptomatic" if differs else "aligned"
+                else:
+                    assessment_status = "change_recommended" if differs else "aligned"
+                    if differs:
+                        changes.append({"field": field, "from": observed, "to": expected})
+                field_assessments.append(
+                    {
+                        "field": field,
+                        "observed": observed,
+                        "case_value": expected,
+                        "status": assessment_status,
+                    }
+                )
         rules.append(
             {
                 "id": rule_id,
@@ -345,9 +404,13 @@ def compatibility_report(
                 "selected_model_available": selected_model is not None,
                 "detected_codex_version": codex_version,
                 "recommended": recommended,
+                "field_assessments": field_assessments,
+                "observed_differences": observed_differences,
                 "suggested_changes": changes,
                 "notes": [
                     "This is a versioned compatibility case, not a universal third-party provider default.",
+                    "tool_mode = direct is symptom-driven in this case; code_mode_only does not require a change when direct tools already work.",
+                    "supports_search_tool = false applies only to the selected third-party Responses provider case, not the built-in OpenAI provider.",
                     "supports_search_tool is not the same setting as top-level web_search.",
                     "Direct tool exposure can increase the initial tool list and context usage.",
                     "After any edit, restart Codex, open a new task, and test Chrome, Web Search, and other plugins separately.",
@@ -359,9 +422,9 @@ def compatibility_report(
                 finding(
                     "compat.deepseek_direct_tools.mismatch",
                     "warning",
-                    "当前模型目录与已知 Chrome 兼容组合不同",
-                    "所选规则来自 2026-08-03 的单机案例，只建议核对差异，不代表所有第三方模型都应使用该组合。",
-                    "先备份模型目录，再人工评估 suggested_changes；修改后完全重启 Codex、新建任务，并分别测试 Chrome、Web Search 和其他插件。",
+                    "第三方 Responses 模型与所选兼容案例存在需处理的字段差异",
+                    "所选规则来自 2026-08-03 的单机案例；supports_search_tool 或 use_responses_lite 与案例不一致。tool_mode 只在直接工具、Skill 或 Chrome 出现症状时核对。",
+                    "先备份模型目录，再人工评估 suggested_changes；不要因为 supports_search_tool 而关闭顶层 web_search。修改后完全重启 Codex、新建任务，并分别测试 Chrome、Web Search 和其他插件。",
                 )
             )
         if applicable and codex_version is not None and codex_version != "0.146.0-alpha.9.2":
@@ -568,6 +631,20 @@ def auth_report(
     return report
 
 
+def _record_unverified_plugin_inventory(findings: list[Finding]) -> None:
+    findings.append(
+        finding(
+            "plugins.invalid_output",
+            "info",
+            "CLI 插件探针返回了无法解析的状态",
+            "插件命令没有返回当前工具支持的 JSON 清单结构；原始输出已丢弃。这个结果只表示 CLI 清单无法解析，不能据此判断插件不可用。",
+            "优先查看 Codex 设置页面并进行实际功能测试。如果两者正常，把这项视为 CLI 兼容性缺口；只有实际功能也失败时才继续修复。",
+            status="unverified",
+            category="verification",
+        )
+    )
+
+
 def plugins_report(
     config: dict[str, Any],
     command_checks: bool,
@@ -579,6 +656,7 @@ def plugins_report(
     remote_plugin_enabled = features.get("remote_plugin", True) is not False
     report: dict[str, Any] = {
         "probe": "skipped",
+        "inventory_status": "unverified",
         "features": {"apps": apps_enabled, "remote_plugin": remote_plugin_enabled},
         "inventory_count": None,
         "chrome": {"found": None, "installed": None, "enabled": None},
@@ -621,20 +699,24 @@ def plugins_report(
             findings.append(
                 finding(
                     "plugins.marketplace_snapshot_invalid",
-                    "warning",
+                    "info",
                     "CLI 插件探针未能核验实际状态",
                     "codex plugin list --json 因一个插件市场目录缺少当前命令支持的 manifest 而失败；原始路径和输出已丢弃。这个结果只表示 CLI 清单不可用，不能据此判断插件不可用。",
                     "优先查看 Codex 设置页面并进行实际功能测试。如果设置页面可见或实际调用正常，无需重装或清理缓存；只有界面和运行时也失败时，才考虑刷新或重新安装插件市场，清理缓存前先备份。",
+                    status="unverified",
+                    category="verification",
                 )
             )
             return report
         findings.append(
             finding(
                 "plugins.probe_failed",
-                "warning",
+                "info",
                 "CLI 插件探针未能核验实际状态",
                 "codex plugin list --json 没有成功返回；原始输出已丢弃。这个结果只表示 CLI 清单不可用，不能据此判断插件不存在、未开启或损坏。",
                 "优先查看 Codex 设置页面并进行实际功能测试。如果界面或实际调用已经确认插件正常，不要重装或清理缓存。",
+                status="unverified",
+                category="verification",
             )
         )
         return report
@@ -642,15 +724,7 @@ def plugins_report(
         payload = json.loads(result.stdout)
     except json.JSONDecodeError:
         report["probe"] = "failed"
-        findings.append(
-            finding(
-                "plugins.invalid_output",
-                "warning",
-                "CLI 插件探针返回了无法解析的状态",
-                "插件命令返回的不是预期 JSON；原始输出已丢弃。这个结果只表示 CLI 清单无法解析，不能据此判断插件不可用。",
-                "优先查看 Codex 设置页面并进行实际功能测试。如果两者正常，把这项视为 CLI 兼容性缺口；只有实际功能也失败时才继续修复。",
-            )
-        )
+        _record_unverified_plugin_inventory(findings)
         return report
 
     installed_collection = False
@@ -662,13 +736,18 @@ def plugins_report(
     elif isinstance(payload, dict) and isinstance(payload.get("plugins"), list):
         raw_items = payload["plugins"]
     else:
-        raw_items = []
+        report["probe"] = "failed"
+        _record_unverified_plugin_inventory(findings)
+        return report
     items: list[dict[str, Any]] = []
+    unrecognized_item_seen = False
     for item in raw_items:
         if not isinstance(item, dict):
+            unrecognized_item_seen = True
             continue
         name = item.get("name") or item.get("id") or item.get("slug")
-        if not isinstance(name, str):
+        if not isinstance(name, str) or not name.strip():
+            unrecognized_item_seen = True
             continue
         items.append(
             {
@@ -677,11 +756,16 @@ def plugins_report(
                 "enabled": item.get("enabled"),
             }
         )
+    if unrecognized_item_seen:
+        report["probe"] = "failed"
+        _record_unverified_plugin_inventory(findings)
+        return report
     chrome = next(
         (item for item in items if item["name"].strip().casefold() == "chrome"),
         None,
     )
     report["probe"] = "ok"
+    report["inventory_status"] = "verified"
     report["inventory_count"] = len(items)
     report["chrome"] = (
         {"found": True, "installed": chrome["installed"], "enabled": chrome["enabled"]}
@@ -692,20 +776,24 @@ def plugins_report(
         findings.append(
             finding(
                 "plugins.chrome.not_installed",
-                "warning",
+                "info",
                 "没有确认 Chrome 插件已经安装",
                 "插件列表中没有找到已安装的 Chrome 插件。",
-                "从 Plugins Directory 安装 Chrome，并按引导安装浏览器扩展。",
+                "先查看 Plugins 设置页并尝试一次实际调用；只有更强证据也确认不可用时，才考虑安装或修复 Chrome 插件。",
+                status="unverified",
+                category="verification",
             )
         )
     elif chrome.get("enabled") is False:
         findings.append(
             finding(
                 "plugins.chrome.disabled",
-                "warning",
+                "info",
                 "Chrome 插件处于关闭状态",
-                "Chrome 已安装，但当前没有启用。",
-                "在 Plugins 页面打开 Chrome，然后完全重启 Codex并新建任务。",
+                "CLI 插件清单把 Chrome 标记为未启用，但这只是低优先级辅助证据。",
+                "先在 Plugins 设置页核对并尝试一次实际调用；只有更强证据也确认未启用时，再打开 Chrome、完全重启 Codex并新建任务。",
+                status="unverified",
+                category="verification",
             )
         )
     return report
@@ -750,6 +838,7 @@ def history_report(
         "threads_current_provider": None,
         "threads_other_providers": None,
         "active_threads_other_providers": None,
+        "provider_counts": None,
     }
     if not isinstance(current_provider, str):
         return empty_report
@@ -785,6 +874,22 @@ def history_report(
                     """,
                     (current_provider, current_provider, current_provider),
                 ).fetchone()
+                provider_rows = connection.execute(
+                    f"""
+                    SELECT
+                        model_provider,
+                        COUNT(*),
+                        COALESCE(SUM(
+                            CASE WHEN {archived_expression} = 0 THEN 1 ELSE 0 END
+                        ), 0),
+                        COALESCE(SUM(
+                            CASE WHEN {archived_expression} <> 0 THEN 1 ELSE 0 END
+                        ), 0)
+                    FROM threads
+                    GROUP BY model_provider
+                    ORDER BY COUNT(*) DESC, model_provider ASC
+                    """
+                ).fetchall()
         except (OSError, sqlite3.Error):
             if compatible_database_seen:
                 empty_report["probe"] = "failed"
@@ -802,6 +907,15 @@ def history_report(
             "threads_current_provider": current_count,
             "threads_other_providers": other_count,
             "active_threads_other_providers": active_other_count,
+            "provider_counts": [
+                {
+                    "provider": provider_id if isinstance(provider_id, str) else "<unset>",
+                    "threads_total": int(total),
+                    "threads_unarchived": int(unarchived),
+                    "threads_archived": int(archived),
+                }
+                for provider_id, total, unarchived, archived in provider_rows
+            ],
         }
         if active_other_count:
             findings.append(

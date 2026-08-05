@@ -44,7 +44,7 @@ class HistoryProviderTests(unittest.TestCase):
                     [
                         ("current-1", "thirdparty", 0),
                         ("current-2", "thirdparty", 1),
-                        ("old-1", "openai", 0),
+                        ("private-task-title-must-not-leak", "openai", 0),
                         ("old-2", "openai", 0),
                         ("old-archived", "openai", 1),
                     ],
@@ -61,6 +61,7 @@ class HistoryProviderTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 1, result.stderr)
             report = json.loads(result.stdout)
+            self.assertNotIn("private-task-title-must-not-leak", result.stdout)
             self.assertEqual(
                 {
                     "history": report["history"],
@@ -76,6 +77,20 @@ class HistoryProviderTests(unittest.TestCase):
                         "threads_current_provider": 2,
                         "threads_other_providers": 3,
                         "active_threads_other_providers": 2,
+                        "provider_counts": [
+                            {
+                                "provider": "openai",
+                                "threads_total": 3,
+                                "threads_unarchived": 2,
+                                "threads_archived": 1,
+                            },
+                            {
+                                "provider": "thirdparty",
+                                "threads_total": 2,
+                                "threads_unarchived": 1,
+                                "threads_archived": 1,
+                            },
+                        ],
                     },
                     "finding_codes": ["history.provider_mismatch"],
                 },

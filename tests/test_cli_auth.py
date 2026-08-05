@@ -71,6 +71,12 @@ class ProviderAuthenticationTests(unittest.TestCase):
                         "env_key_is_set": False,
                         "auth_command_configured": False,
                         "direct_bearer_token_configured": True,
+                        "authentication_intent": {
+                            "combination": "openai_auth_with_explicit_bearer_token",
+                            "status": "unverified",
+                            "intentional": None,
+                            "acknowledgement_code": "provider.auth.openai_with_direct_token",
+                        },
                     },
                     "finding_codes": [
                         "provider.auth.openai_with_env_key",
@@ -169,7 +175,7 @@ class ProviderAuthenticationTests(unittest.TestCase):
                 },
             )
 
-    def test_openai_auth_with_direct_token_is_version_sensitive_but_not_an_error(self) -> None:
+    def test_openai_auth_with_direct_token_keeps_intent_unverified_and_plaintext_risk_separate(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             codex_home = root / "codex-home"
@@ -205,14 +211,132 @@ class ProviderAuthenticationTests(unittest.TestCase):
             self.assertNotIn(secret, serialized)
             self.assertEqual(
                 {
-                    "errors": report["summary"]["errors"],
-                    "warnings": report["summary"]["warnings"],
-                    "finding_codes": [finding["code"] for finding in report["findings"]],
+                    "summary": report["summary"],
+                    "authentication_intent": report["provider"]["authentication_intent"],
+                    "findings": [
+                        {
+                            key: finding[key]
+                            for key in ("code", "severity", "status", "category", "intentional")
+                        }
+                        for finding in report["findings"]
+                    ],
                 },
                 {
-                    "errors": 0,
-                    "warnings": 2,
-                    "finding_codes": [
+                    "summary": {
+                        "status": "warning",
+                        "errors": 0,
+                        "warnings": 1,
+                        "info": 1,
+                        "unverified": 1,
+                        "acknowledged": 0,
+                        "intentional": 0,
+                    },
+                    "authentication_intent": {
+                        "combination": "openai_auth_with_explicit_bearer_token",
+                        "status": "unverified",
+                        "intentional": None,
+                        "acknowledgement_code": "provider.auth.openai_with_direct_token",
+                    },
+                    "findings": [
+                        {
+                            "code": "provider.auth.openai_with_direct_token",
+                            "severity": "info",
+                            "status": "unverified",
+                            "category": "intent",
+                            "intentional": None,
+                        },
+                        {
+                            "code": "provider.auth.direct_token",
+                            "severity": "warning",
+                            "status": "open",
+                            "category": "security",
+                            "intentional": False,
+                        },
+                    ],
+                },
+            )
+
+    def test_explicit_acknowledgement_marks_auth_combination_intentional_without_hiding_plaintext_risk(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            codex_home = root / "codex-home"
+            codex_home.mkdir()
+            secret = "acknowledged-token-must-not-leak"
+            (codex_home / "config.toml").write_text(
+                "\n".join(
+                    [
+                        'model = "third-party-model"',
+                        'model_provider = "thirdparty"',
+                        "",
+                        "[model_providers.thirdparty]",
+                        'base_url = "https://api.example.invalid/v1"',
+                        "requires_openai_auth = true",
+                        f'experimental_bearer_token = "{secret}"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            result = run_doctor(
+                "--codex-home",
+                str(codex_home),
+                "--system-config",
+                str(root / "missing-system.toml"),
+                "--no-command-checks",
+                "--acknowledge",
+                "provider.auth.openai_with_direct_token",
+                "--json",
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            report = json.loads(result.stdout)
+            self.assertNotIn(secret, result.stdout)
+            findings_by_code = {item["code"]: item for item in report["findings"]}
+            self.assertEqual(
+                {
+                    "summary": report["summary"],
+                    "authentication_intent": report["provider"]["authentication_intent"],
+                    "intent_finding": {
+                        key: findings_by_code["provider.auth.openai_with_direct_token"][key]
+                        for key in ("code", "severity", "status", "category", "intentional")
+                    },
+                    "security_finding": {
+                        key: findings_by_code["provider.auth.direct_token"][key]
+                        for key in ("code", "severity", "status", "category", "intentional")
+                    },
+                    "finding_order": [item["code"] for item in report["findings"]],
+                },
+                {
+                    "summary": {
+                        "status": "warning",
+                        "errors": 0,
+                        "warnings": 1,
+                        "info": 1,
+                        "unverified": 0,
+                        "acknowledged": 1,
+                        "intentional": 1,
+                    },
+                    "authentication_intent": {
+                        "combination": "openai_auth_with_explicit_bearer_token",
+                        "status": "acknowledged",
+                        "intentional": True,
+                        "acknowledgement_code": "provider.auth.openai_with_direct_token",
+                    },
+                    "intent_finding": {
+                        "code": "provider.auth.openai_with_direct_token",
+                        "severity": "info",
+                        "status": "acknowledged",
+                        "category": "intent",
+                        "intentional": True,
+                    },
+                    "security_finding": {
+                        "code": "provider.auth.direct_token",
+                        "severity": "warning",
+                        "status": "open",
+                        "category": "security",
+                        "intentional": False,
+                    },
+                    "finding_order": [
                         "provider.auth.openai_with_direct_token",
                         "provider.auth.direct_token",
                     ],

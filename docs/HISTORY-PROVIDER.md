@@ -18,8 +18,26 @@ It scans database-looking files directly under `$CODEX_HOME` and `$CODEX_HOME/sq
 - rows bound to the current Provider;
 - rows bound to another Provider;
 - unarchived rows bound to another Provider.
+- every distinct `model_provider`, with total, unarchived, and archived counts in `provider_counts`.
 
 It does not select titles, messages, previews, task bodies, or rollout content.
+
+Example shape:
+
+```json
+{
+  "provider_counts": [
+    {
+      "provider": "thirdparty",
+      "threads_total": 12,
+      "threads_unarchived": 7,
+      "threads_archived": 5
+    }
+  ]
+}
+```
+
+The values are computed from the discovered database at diagnosis time. Tests use temporary databases and never hard-code counts from a developer machine.
 
 ## Why there is no one-click database repair
 

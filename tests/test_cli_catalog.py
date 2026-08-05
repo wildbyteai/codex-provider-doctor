@@ -50,12 +50,14 @@ class CatalogResolutionTests(unittest.TestCase):
             {
                 "model": report["effective"]["model"],
                 "catalog_source": report["effective"]["origins"]["model_catalog_json"],
+                "catalog_model_count": report["catalog"]["model_count"],
                 "catalog_model": report["catalog"]["selected_model"]["slug"],
                 "supports_search_tool": report["catalog"]["selected_model"]["supports_search_tool"],
             },
             {
                 "model": "deepseek-v4-flash",
                 "catalog_source": str(codex_home / "work.config.toml"),
+                "catalog_model_count": 1,
                 "catalog_model": "deepseek-v4-flash",
                 "supports_search_tool": False,
             },

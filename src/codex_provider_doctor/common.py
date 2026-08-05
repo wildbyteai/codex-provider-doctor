@@ -29,14 +29,27 @@ PROJECT_IGNORED_KEYS = {
 }
 
 
-Finding = dict[str, str]
+Finding = dict[str, Any]
 JsonObject = dict[str, Any]
 
 
-def finding(code: str, severity: str, title: str, message: str, remedy: str) -> Finding:
+def finding(
+    code: str,
+    severity: str,
+    title: str,
+    message: str,
+    remedy: str,
+    *,
+    status: str = "open",
+    category: str = "diagnostic",
+    intentional: bool | None = False,
+) -> Finding:
     return {
         "code": code,
         "severity": severity,
+        "status": status,
+        "category": category,
+        "intentional": intentional,
         "title": title,
         "message": message,
         "remedy": remedy,

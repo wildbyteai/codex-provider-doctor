@@ -18,6 +18,7 @@ def install_fake_codex(
     plugin_marketplace_failure: bool = False,
     login_status: str = "Logged in using ChatGPT",
     plugin_items: list[dict[str, object]] | None = None,
+    plugin_payload: object | None = None,
 ) -> None:
     if plugin_items is None:
         plugin_items = [
@@ -56,10 +57,7 @@ def install_fake_codex(
                         file=sys.stderr,
                     )
                     raise SystemExit(1)
-                print(json.dumps({
-                    "installed": __PLUGIN_ITEMS__,
-                    "available": [],
-                }))
+                print(json.dumps(__PLUGIN_PAYLOAD__))
                 raise SystemExit(0)
             raise SystemExit(4)
             """
@@ -68,7 +66,14 @@ def install_fake_codex(
         .replace("__FAKE_VERSION__", version)
         .replace("__PLUGIN_MARKETPLACE_FAILURE__", repr(plugin_marketplace_failure))
         .replace("__LOGIN_STATUS__", repr(login_status))
-        .replace("__PLUGIN_ITEMS__", repr(plugin_items)),
+        .replace(
+            "__PLUGIN_PAYLOAD__",
+            repr(
+                plugin_payload
+                if plugin_payload is not None
+                else {"installed": plugin_items, "available": []}
+            ),
+        ),
         encoding="utf-8",
     )
 
@@ -138,6 +143,7 @@ class RuntimeProbeTests(unittest.TestCase):
                     },
                     "plugins": {
                         "probe": "ok",
+                        "inventory_status": "verified",
                         "features": {"apps": True, "remote_plugin": True},
                         "inventory_count": 2,
                         "chrome": {"found": True, "installed": True, "enabled": True},
@@ -177,19 +183,40 @@ class RuntimeProbeTests(unittest.TestCase):
                 },
             )
 
-            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertEqual(result.returncode, 0, result.stderr)
             report = json.loads(result.stdout)
             self.assertNotIn(private_name, json.dumps(report, ensure_ascii=False))
             self.assertEqual(
                 {
                     "inventory_count": report["plugins"]["inventory_count"],
+                    "inventory_status": report["plugins"]["inventory_status"],
                     "chrome": report["plugins"]["chrome"],
-                    "finding_codes": [finding["code"] for finding in report["findings"]],
+                    "finding": {
+                        key: report["findings"][0][key]
+                        for key in ("code", "severity", "status", "category", "intentional")
+                    },
+                    "summary": report["summary"],
                 },
                 {
                     "inventory_count": 1,
+                    "inventory_status": "verified",
                     "chrome": {"found": False, "installed": False, "enabled": False},
-                    "finding_codes": ["plugins.chrome.not_installed"],
+                    "finding": {
+                        "code": "plugins.chrome.not_installed",
+                        "severity": "info",
+                        "status": "unverified",
+                        "category": "verification",
+                        "intentional": False,
+                    },
+                    "summary": {
+                        "status": "ok",
+                        "errors": 0,
+                        "warnings": 0,
+                        "info": 1,
+                        "unverified": 1,
+                        "acknowledged": 0,
+                        "intentional": 0,
+                    },
                 },
             )
 
@@ -294,20 +321,41 @@ class RuntimeProbeTests(unittest.TestCase):
                 },
             )
 
-            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertEqual(result.returncode, 0, result.stderr)
             report = json.loads(result.stdout)
             serialized = json.dumps(report, ensure_ascii=False)
             self.assertNotIn("secret-marketplace", serialized)
             self.assertEqual(
                 {
                     "plugin_probe": report["plugins"]["probe"],
+                    "inventory_status": report["plugins"]["inventory_status"],
                     "chrome": report["plugins"]["chrome"],
-                    "finding_codes": [finding["code"] for finding in report["findings"]],
+                    "finding": {
+                        key: report["findings"][0][key]
+                        for key in ("code", "severity", "status", "category", "intentional")
+                    },
+                    "summary": report["summary"],
                 },
                 {
                     "plugin_probe": "failed",
+                    "inventory_status": "unverified",
                     "chrome": {"found": None, "installed": None, "enabled": None},
-                    "finding_codes": ["plugins.marketplace_snapshot_invalid"],
+                    "finding": {
+                        "code": "plugins.marketplace_snapshot_invalid",
+                        "severity": "info",
+                        "status": "unverified",
+                        "category": "verification",
+                        "intentional": False,
+                    },
+                    "summary": {
+                        "status": "ok",
+                        "errors": 0,
+                        "warnings": 0,
+                        "info": 1,
+                        "unverified": 1,
+                        "acknowledged": 0,
+                        "intentional": 0,
+                    },
                 },
             )
             finding = report["findings"][0]
@@ -327,7 +375,7 @@ class RuntimeProbeTests(unittest.TestCase):
                     "PATH": f"{bin_directory}{os.pathsep}{os.environ.get('PATH', '')}",
                 },
             )
-            self.assertEqual(english_result.returncode, 1, english_result.stderr)
+            self.assertEqual(english_result.returncode, 0, english_result.stderr)
             english_finding = json.loads(english_result.stdout)["findings"][0]
             self.assertIn(
                 "does not prove that a plugin is absent or broken",
@@ -335,6 +383,125 @@ class RuntimeProbeTests(unittest.TestCase):
             )
             self.assertIn("Settings or Plugins page", english_finding["remedy"])
             self.assertIn("do not reinstall it or clear caches", english_finding["remedy"])
+
+    def test_unrecognized_plugin_json_shape_remains_unverified_information(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            codex_home = root / "codex-home"
+            bin_directory = root / "bin"
+            codex_home.mkdir()
+            bin_directory.mkdir()
+            (codex_home / "config.toml").write_text('model = "gpt-5.6"\n', encoding="utf-8")
+            install_fake_codex(
+                bin_directory,
+                plugin_payload={"unexpected_inventory": [{"name": "private-plugin"}]},
+            )
+
+            result = run_doctor(
+                "--codex-home",
+                str(codex_home),
+                "--system-config",
+                str(root / "missing-system.toml"),
+                "--json",
+                extra_env={
+                    "PATH": f"{bin_directory}{os.pathsep}{os.environ.get('PATH', '')}",
+                },
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            report = json.loads(result.stdout)
+            self.assertNotIn("private-plugin", result.stdout)
+            self.assertEqual(
+                {
+                    "plugin_probe": report["plugins"]["probe"],
+                    "inventory_status": report["plugins"]["inventory_status"],
+                    "inventory_count": report["plugins"]["inventory_count"],
+                    "chrome": report["plugins"]["chrome"],
+                    "finding": {
+                        key: report["findings"][0][key]
+                        for key in ("code", "severity", "status", "category")
+                    },
+                    "summary": report["summary"],
+                },
+                {
+                    "plugin_probe": "failed",
+                    "inventory_status": "unverified",
+                    "inventory_count": None,
+                    "chrome": {"found": None, "installed": None, "enabled": None},
+                    "finding": {
+                        "code": "plugins.invalid_output",
+                        "severity": "info",
+                        "status": "unverified",
+                        "category": "verification",
+                    },
+                    "summary": {
+                        "status": "ok",
+                        "errors": 0,
+                        "warnings": 0,
+                        "info": 1,
+                        "unverified": 1,
+                        "acknowledged": 0,
+                        "intentional": 0,
+                    },
+                },
+            )
+
+    def test_unrecognized_nonempty_plugin_item_remains_unverified_information(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            codex_home = root / "codex-home"
+            bin_directory = root / "bin"
+            codex_home.mkdir()
+            bin_directory.mkdir()
+            (codex_home / "config.toml").write_text('model = "gpt-5.6"\n', encoding="utf-8")
+            install_fake_codex(
+                bin_directory,
+                plugin_payload={
+                    "installed": [{"private_label": "must-not-leak", "enabled": True}],
+                    "available": [],
+                },
+            )
+
+            result = run_doctor(
+                "--codex-home",
+                str(codex_home),
+                "--system-config",
+                str(root / "missing-system.toml"),
+                "--json",
+                extra_env={
+                    "PATH": f"{bin_directory}{os.pathsep}{os.environ.get('PATH', '')}",
+                },
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            report = json.loads(result.stdout)
+            self.assertNotIn("must-not-leak", result.stdout)
+            self.assertEqual(
+                {
+                    "plugin_probe": report["plugins"]["probe"],
+                    "inventory_status": report["plugins"]["inventory_status"],
+                    "inventory_count": report["plugins"]["inventory_count"],
+                    "chrome": report["plugins"]["chrome"],
+                    "finding_code": report["findings"][0]["code"],
+                    "summary": report["summary"],
+                },
+                {
+                    "plugin_probe": "failed",
+                    "inventory_status": "unverified",
+                    "inventory_count": None,
+                    "chrome": {"found": None, "installed": None, "enabled": None},
+                    "finding_code": "plugins.invalid_output",
+                    "summary": {
+                        "status": "ok",
+                        "errors": 0,
+                        "warnings": 0,
+                        "info": 1,
+                        "unverified": 1,
+                        "acknowledged": 0,
+                        "intentional": 0,
+                    },
+                },
+            )
 
     def test_versioned_compatibility_rule_warns_on_a_different_codex_version(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

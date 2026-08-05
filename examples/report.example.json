@@ -11,6 +11,20 @@
       "model_catalog_json": "/sanitized/codex-home/config.toml"
     }
   },
+  "catalog": {
+    "path": "/sanitized/codex-home/catalogs/vendor-models.release.json",
+    "exists": true,
+    "is_file": true,
+    "valid": true,
+    "model_count": 1,
+    "selected_model": {
+      "slug": "vendor-model-v1",
+      "display_name": "Vendor Model V1",
+      "tool_mode": "code_mode_only",
+      "supports_search_tool": false,
+      "use_responses_lite": false
+    }
+  },
   "provider": {
     "id": "thirdparty",
     "exists": true,
@@ -21,7 +35,8 @@
     "env_key": "THIRD_PARTY_API_KEY",
     "env_key_is_set": true,
     "auth_command_configured": false,
-    "direct_bearer_token_configured": false
+    "direct_bearer_token_configured": false,
+    "authentication_intent": null
   },
   "history": {
     "probe": "ok",
@@ -31,11 +46,29 @@
     "threads_total": 12,
     "threads_current_provider": 10,
     "threads_other_providers": 2,
-    "active_threads_other_providers": 2
+    "active_threads_other_providers": 2,
+    "provider_counts": [
+      {
+        "provider": "thirdparty",
+        "threads_total": 10,
+        "threads_unarchived": 8,
+        "threads_archived": 2
+      },
+      {
+        "provider": "openai",
+        "threads_total": 2,
+        "threads_unarchived": 2,
+        "threads_archived": 0
+      }
+    ]
   },
   "summary": {
     "status": "warning",
     "errors": 0,
-    "warnings": 1
+    "warnings": 1,
+    "info": 0,
+    "unverified": 0,
+    "acknowledged": 0,
+    "intentional": 0
   }
 }

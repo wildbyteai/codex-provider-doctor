@@ -84,6 +84,10 @@ class ConfigFileTests(unittest.TestCase):
                         "status": "tool_error",
                         "errors": 0,
                         "warnings": 0,
+                        "info": 0,
+                        "unverified": 0,
+                        "acknowledged": 0,
+                        "intentional": 0,
                     },
                     "tool_error": {
                         "code": "doctor.internal_failure",

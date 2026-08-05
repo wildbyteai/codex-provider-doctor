@@ -26,6 +26,9 @@ from codex_provider_doctor.report import (
 )
 
 
+ACKNOWLEDGEABLE_FINDINGS = ("provider.auth.openai_with_direct_token",)
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="codex-provider-doctor")
     parser.add_argument("--codex-home", type=Path)
@@ -39,6 +42,13 @@ def _parser() -> argparse.ArgumentParser:
         default=[],
     )
     parser.add_argument("--no-command-checks", action="store_true")
+    parser.add_argument(
+        "--acknowledge",
+        choices=ACKNOWLEDGEABLE_FINDINGS,
+        action="append",
+        default=[],
+        help="Record an explicitly confirmed diagnostic intent without hiding separate risks.",
+    )
     parser.add_argument("-c", "--config", dest="config_overrides", action="append", default=[])
     parser.add_argument("--lang", choices=["zh-CN", "en"], default="zh-CN")
     parser.add_argument("--json", action="store_true")
@@ -66,7 +76,7 @@ def _execute(args: argparse.Namespace) -> int:
         working_directory,
         findings,
     )
-    provider = provider_report(config, findings)
+    provider = provider_report(config, findings, set(args.acknowledge))
     command_checks = not args.no_command_checks
     codex_binary = shutil.which("codex") if command_checks else None
     runtime = runtime_report(command_checks, codex_binary, findings)
@@ -90,6 +100,10 @@ def _execute(args: argparse.Namespace) -> int:
 
     error_count = sum(item["severity"] == "error" for item in findings)
     warning_count = sum(item["severity"] == "warning" for item in findings)
+    info_count = sum(item["severity"] == "info" for item in findings)
+    unverified_count = sum(item["status"] == "unverified" for item in findings)
+    acknowledged_count = sum(item["status"] == "acknowledged" for item in findings)
+    intentional_count = sum(item["intentional"] is True for item in findings)
     status = "error" if error_count else "warning" if warning_count else "ok"
     report = {
         "schema_version": 1,
@@ -112,7 +126,15 @@ def _execute(args: argparse.Namespace) -> int:
         "project": resolution.project,
         "manual_checks": manual_checks(),
         "findings": findings,
-        "summary": {"status": status, "errors": error_count, "warnings": warning_count},
+        "summary": {
+            "status": status,
+            "errors": error_count,
+            "warnings": warning_count,
+            "info": info_count,
+            "unverified": unverified_count,
+            "acknowledged": acknowledged_count,
+            "intentional": intentional_count,
+        },
     }
 
     report = localize_report(report, args.lang)
@@ -146,6 +168,10 @@ def main(argv: list[str] | None = None) -> int:
                         "status": "tool_error",
                         "errors": 0,
                         "warnings": 0,
+                        "info": 0,
+                        "unverified": 0,
+                        "acknowledged": 0,
+                        "intentional": 0,
                     },
                     "tool_error": {
                         "code": "doctor.internal_failure",

@@ -38,12 +38,13 @@ Skill 和命令行工具使用同一套诊断代码。Skill 不会全局安装 P
 - Codex 到底加载了哪一层配置：系统、用户、Profile、可信项目，还是命令行覆盖。
 - 最终生效的 `model_catalog_json` 是什么。
 - 不假设文件一定叫 `models.custom.json`、`models.json` 或其他固定名字。
+- 模型目录条目总数，但不会把所有模型条目完整输出。
 - 相对路径按“声明这个值的配置文件所在目录”解析，不按猜测搜索。
 - 当前 `model` 是否能在 `models[].slug` 中唯一匹配。
 - `display_name`、`tool_mode`、`supports_search_tool`、`use_responses_lite` 和上下文窗口配置。
-- 活动 Provider 的 `requires_openai_auth`、`env_key`、命令认证和明文 Token 冲突。
+- 活动 Provider 的 `requires_openai_auth`、`env_key`、命令认证和明文 Token 冲突，并把已确认意图与独立安全风险分开。
 - 官方 Codex 登录方式，以及 CLI 只读探针成功时的插件总数和 Chrome 开启状态；探针失败时明确保留为“未核验”，不会在报告里列出其他插件名称。
-- 历史任务数据库中，有多少任务仍绑定其他 Provider。
+- 历史任务按 `model_provider` 分组的总数、未归档数和已归档数。
 
 ## 插件证据怎么判断
 
@@ -54,7 +55,7 @@ CLI 插件探针只是一个证据来源，不是运行时状态的最终结论�
 3. `codex plugin list --json` 成功返回。
 4. 静态配置和人工推断。
 
-如果 CLI 命令失败或返回当前工具不认识的格式，只能说明插件清单尚未核验，不能据此判断插件不存在、未开启或损坏。设置页面或实际调用已经正常时，不要重装插件或清理缓存；只有这些更强证据也失败时，才继续考虑修复。
+如果 CLI 命令失败或返回当前工具不认识的格式，只能说明插件清单尚未核验。它会被记录为 `info / unverified`，单独出现时不会把退出码从 `0` 变成 `1`。即使 CLI 清单成功但没有确认 Chrome，也仍是低优先级辅助证据，不等于真实调用失败。设置页面或实际调用已经正常时，不要重装插件或清理缓存；只有这些更强证据也失败时，才继续考虑修复。
 
 ## 先记住一个最容易配错的地方
 
@@ -69,6 +70,15 @@ CLI 插件探针只是一个证据来源，不是运行时状态的最终结论�
 1. Codex 官方登录态：运行 `codex login status`。
 2. 第三方 API 怎么认证：看活动 `[model_providers.<id>]`。
 3. Chrome、插件、连接器或 MCP 是否安装、开启并完成授权。
+
+如果用户已经明确确认这组认证组合就是有意设计，可以在诊断时记录该意图：
+
+```shell
+codex-provider-doctor \
+  --acknowledge provider.auth.openai_with_direct_token
+```
+
+这个参数只把认证组合标记为“已确认且有意”，不会隐藏 `experimental_bearer_token` 明文存储的独立警告。
 
 ## 命令行工具（可选）
 
@@ -127,13 +137,21 @@ codex-provider-doctor \
 }
 ```
 
-这组配置只在 Codex `0.146.0-alpha.9.2` 和一个第三方接口组合中实测过。它不是所有第三方模型的默认答案。`supports_search_tool` 也不等于顶层 `web_search`。
+这组配置只在 Codex `0.146.0-alpha.9.2` 和一个第三方 DeepSeek Responses 接口组合中实测过。只有当前选中的模型也属于 DeepSeek、并且使用第三方 Responses Provider 时，规则才进入评估。即使官方模型出现在同一个自定义模型目录中，也不会套用这条规则。
+
+三项字段的处理并不相同：
+
+- `supports_search_tool = false`：只作为当前第三方 DeepSeek 案例的建议；官方模型可以保持 `true`。
+- `use_responses_lite = false`：属于同一日期案例的建议值。
+- `tool_mode = direct`：状态为 `review_if_symptomatic`；如果 `code_mode_only` 下直接工具已经正常，就不把它写成必须修改。
+
+`supports_search_tool` 是模型目录字段，不等于顶层 `web_search`，也不构成关闭 Web Search 的理由。
 
 ## 为什么历史任务会“不见”
 
 任务文件可能还在，只是本地任务索引里的 `model_provider` 仍然是旧值。某些会按 Provider 过滤任务的版本，就可能不在当前列表里显示这些任务。
 
-这个工具会只读统计差异，不读取标题、消息、预览或正文，也不会批量更新数据库。
+这个工具会只读统计每个 `model_provider` 的全部、未归档和已归档数量，不读取标题、消息、预览或正文，也不会批量更新数据库。
 
 数据库修复比改 JSON 风险高。必须先退出 Codex，同时备份主数据库、`-wal`、`-shm` 和任务文件，再做明确范围的事务更新。首版故意不提供一键修复。详细说明见 [历史任务与 Provider 绑定](docs/HISTORY-PROVIDER.md)。
 
@@ -146,6 +164,20 @@ codex doctor
 ```
 
 然后再用本工具检查第三方 Provider 的模型目录解析、兼容字段、Chrome/插件和历史 Provider 绑定。
+
+## Finding 分级与 JSON 兼容性
+
+`schema_version` 继续保持为 `1`，现有顶层字段与插件 `probe` 字段保留。本轮以新增字段为主：
+
+- 每条 finding 新增 `status`、`category` 和 `intentional`，并继续保留 `severity`。
+- summary 新增 `info`、`unverified`、`acknowledged` 和 `intentional` 计数。
+- 插件报告新增 `inventory_status`；命令失败、JSON 无效或 JSON 结构不受支持时，`probe` 保持为 `failed`，清单状态诚实地保持为 `unverified`。
+- 模型目录报告新增 `model_count`。
+- 历史任务报告新增 `provider_counts`。
+- 兼容规则新增 `field_assessments` 和 `observed_differences`；`suggested_changes` 不再包含只按症状核对的 `tool_mode` 差异。
+- JSON finding 数组保持诊断生成顺序；优先级排序只用于人类可读报告，不改变机器输出顺序。
+
+退出码仍只由 error 和 warning 决定：没有两者时为 `0`，有 warning 时为 `1`，有 error 时为 `2`，工具无法安全完成时为 `3`。
 
 ## 没有安装 Skill 时的备用提示词
 
