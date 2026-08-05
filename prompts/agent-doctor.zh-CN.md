@@ -7,7 +7,7 @@
 
 1. 如何保留官方 ChatGPT/Codex 登录态，同时让第三方 Provider 使用直接 Token。
 2. 切换后插件、官方插件或 Skill 不可用。
-3. 模型名称显示成错误名称或不清楚的 slug。
+3. Windows Desktop 模型名称只显示 `Custom`、错误名称或不清楚的 slug。
 4. 切换 Provider 后历史任务不见了。
 5. Chrome 插件无法调用。
 
@@ -56,8 +56,15 @@
 4. 必须恰好匹配一条；零条或重复都要报错。
 5. 只输出活动条目的这些字段：slug、display_name、context_window、effective_context_window_percent、auto_compact_token_limit、tool_mode、supports_search_tool、use_responses_lite。
 6. display_name 缺失或为空时，说明这会导致模型列表只显示 slug 或名称不清楚，但不要替我编造名称。
-7. 如果 slug 和非空 display_name 已经正确，不要继续建议修改字段；先确认界面使用的是这份生效目录，完全重启并用新任务验证，再检查 Profile 或更高优先级配置层。
+7. 如果 slug 和非空 display_name 已经正确，不要继续建议修改字段，也不要反复清缓存。先确认界面使用的是这份生效目录，再按下面的 Windows Desktop 条件式提醒判断。
 8. 分开显示顶层 web_search 和模型条目的 supports_search_tool，不要把它们当成同一个参数。
+9. 如果用户使用 Windows Desktop，并且已经提供或确认以下证据：App Server 的 `model/list` 返回活动 slug，但桌面下拉框仍遗漏它，或只显示 `Custom`、`Custom High/Max`、错误名称或错误元数据，则把 Desktop 选择器二次过滤作为首要已知兼容性疑点。必须同时写清：
+   - 诊断器无法从静态配置自动观察桌面 UI 或远程 `available_models` 响应，因此不能自动确认为根因；
+   - 截至 2026-08-05 的同类公开记录是 `openai/codex#19694` 和 `#36582`，对外表述“仍未解决”前要重新核对当前状态；
+   - 安全绕过优先使用配置切换器直接切换 `model` 与 `model_provider`；只有当前 Provider 已正确时才单独使用 `codex -m <slug>`，跨 Provider 切换用不同 Profile；
+   - 必须用新任务真实请求或 CLI 调用确认实际模型路由，界面名称不能作为判据；
+   - 只有 App Server 列表或真实请求也失败时，才继续排查 Profile、配置层或 Provider 请求链；
+   - 不自动修改 `app.asar`。实验性补丁必须先备份、取得明确确认并提供恢复路径。
 
 如果我明确报告“第三方模型下 Chrome 插件不可用”，先把活动模型目录条目的实际 `supports_search_tool` 放到兼容性排查前部，并按当前工具暴露语义解释：
 

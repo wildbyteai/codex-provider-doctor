@@ -10,7 +10,7 @@ Status: alpha. The tool reports findings and suggested diffs. It does not edit C
 
 1. **Keep the official sign-in**: only for a custom third-party Provider that intentionally uses a direct token, put `requires_openai_auth = true` and `experimental_bearer_token` in that Provider's `[model_providers.<id>]` table. If `env_key/auth` already exists, migrate instead of stacking methods. Separately confirm that `codex login status` reports ChatGPT sign-in. Plaintext-token risk remains an independent warning.
 2. **Restore plugins, official plugins, or Skills**: restart Codex completely and open a new task, then separate local Skill installation, Plugins/Settings enablement and authorization, and actual tool exposure. A failed CLI inventory is not a reason to reinstall.
-3. **Fix the model name**: identify the effective `model_catalog_json`, make top-level `model` match exactly one `models[].slug`, and inspect that entry's `display_name`. When those fields are already correct, do not edit them again; restart and verify in a new task.
+3. **Fix the model name**: identify the effective `model_catalog_json`, make top-level `model` match exactly one `models[].slug`, and inspect that entry's `display_name`. When those fields are already correct, do not edit them again. If App Server `model/list` returns the model on Windows Desktop but the picker still omits it or shows only `Custom`, prioritize the matching Desktop-picker defect and use a config switcher, CLI, or Profiles as safe workarounds. The doctor provides a conditional reminder; it does not observe the UI or remote allowlist automatically.
 4. **Recover older tasks**: aggregate the Providers stored on affected tasks. First switch back to those Providers, use an all-provider view when available, or update Codex. Consider binding migration only after quitting Codex, backing up the database plus WAL/SHM, showing the exact field diff, and obtaining another confirmation.
 5. **Restore Chrome calls**: inspect the selected model's `supports_search_tool` early, but do not treat it as a complete exposure switch. In the 2026-08-05 official source, `false` forces the namespace-tool planning branch to Direct; `true` permits Deferred only when namespace tools are also enabled. Actual Chrome declarations and the live task tool list still require verification. Then check Plugins/Settings, official sign-in, the Chrome profile, connector authorization, and a live invocation.
 
@@ -38,6 +38,7 @@ Codex handles the repository path, Skill name, and installer arguments. If the c
 - Relative catalog paths, resolved from the config file that declared the winning value.
 - The active `model` and its exact `models[].slug` match.
 - Model display metadata, `tool_mode`, `supports_search_tool`, `use_responses_lite`, context window, and compact limits.
+- A conditional Windows Desktop picker reminder when the catalog fields are already valid, keeping catalog, App Server, picker, and live-request evidence separate.
 - A five-problem recovery guide with exact no-write actions before the technical evidence.
 - Counts of locally discovered user and trusted-project Skills without reporting their names. Untrusted-project Skills are not scanned and make coverage explicitly partial.
 - Symptom-aware Chrome compatibility triage for any selected third-party Responses model, including the runtime conditions around Direct versus Deferred namespace-tool exposure.
@@ -70,6 +71,28 @@ The CLI plugin probe is one evidence source, not the final authority on runtime 
 If the CLI command fails or returns an unsupported format, the plugin inventory is `unverified`. The finding is informational and does not change exit code `0` by itself. A successful CLI inventory that does not confirm Chrome is also lower-priority evidence, not proof of a runtime failure. Do not reinstall plugins or clear caches when the UI or a live invocation already works; consider repair only when those stronger checks also fail.
 
 When the user explicitly reports that Chrome is unavailable, prefer `--problem chrome-unavailable`; the lower-level `--symptom chrome-plugin-unavailable` flag remains available for existing integrations. In the official source snapshot dated 2026-08-05, `supports_search_tool = false` forces the namespace-tool planning branch to Direct, but does not prove that Chrome itself is directly exposed or present. `true` permits Deferred only when namespace tools are also enabled; otherwise Direct remains possible. The doctor therefore records the field near the front of triage but keeps the actual exposure path, tool declarations, Settings state, and live invocation unverified. It never infers or edits top-level `web_search` from this check.
+
+## Windows Desktop model-picker reminder
+
+This is intentionally not presented as fully automatic detection. The doctor cannot infer the remote `available_models` response from `config.toml` and a model catalog, and it cannot observe the final Desktop picker UI.
+
+Treat additional Desktop picker filtering as the leading known compatibility suspect only when the manual evidence chain is complete:
+
+1. The effective catalog uniquely matches the active `slug` and has a non-empty `display_name`.
+2. App Server `model/list` returns that model.
+3. The Windows Desktop picker still omits it or shows only `Custom`, `Custom High/Max`, an incorrect name, or incorrect metadata.
+4. A real request in a new task or a CLI invocation is still required to prove actual model routing; the UI label is not proof.
+
+As of 2026-08-05, matching reports were recorded in the official OpenAI repository as [#19694](https://github.com/openai/codex/issues/19694) and [#36582](https://github.com/openai/codex/issues/36582). Reports keep this as a dated reference snapshot and require rechecking current issue status before claiming the defect remains unresolved.
+
+Safe workaround order:
+
+1. Use a config switcher to change `model` and `model_provider` in `config.toml`.
+2. Run `codex -m <slug>` when the active Provider is already correct; use separate Profiles when switching Providers.
+3. Open a new task and send a real request to verify the routed model instead of trusting the Desktop label.
+4. Return to Profile, configuration precedence, and provider-request diagnosis only when App Server listing or the real request also fails.
+
+The doctor never patches `app.asar` automatically. Any experimental Desktop patch requires a backup, explicit confirmation, and a recovery path; it is not the default repair.
 
 ## Safety model
 

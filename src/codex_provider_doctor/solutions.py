@@ -278,11 +278,21 @@ def _model_name_solution(
 
     display_name_is_clear = isinstance(display_name, str) and bool(display_name.strip())
     if language == "en":
+        desktop_picker_reminder = {
+            "code": "windows_desktop.model_picker_filtering",
+            "status": "manual",
+            "automatic_detection": False,
+            "condition": "App Server model/list returns the active slug, but Windows Desktop omits it or shows Custom / incorrect metadata.",
+            "references": {
+                "as_of": "2026-08-05",
+                "issues": ["openai/codex#19694", "openai/codex#36582"],
+            },
+        }
         actions = (
             [
                 "No display_name change is needed; first confirm that the UI is loading the reported catalog path and slug.",
-                "Restart Codex completely and open a new task; older tasks may keep the previous name.",
-                "If the new task still shows the wrong name, check whether the active Profile or a higher-priority config layer changed model_catalog_json.",
+                "Windows Desktop reminder: if App Server model/list returns this slug but the picker still omits it or shows Custom / incorrect metadata, prioritize the matching Desktop-picker defect documented in openai/codex#19694 and #36582 as of 2026-08-05. The doctor cannot observe the UI or remote available_models response, so it does not confirm this cause automatically; recheck current issue status before calling it unresolved.",
+                f'Safe workaround: switch model and model_provider in config.toml, run codex -m "{model_slug}" when the active provider is already correct, or use separate Profiles. Verify routing with a real request because the UI label is not proof. Never patch app.asar automatically; an experimental patch requires a backup and explicit confirmation.',
             ]
             if display_name_is_clear
             else [
@@ -296,19 +306,34 @@ def _model_name_solution(
             "title": "Fix the model name",
             "status": "configured" if display_name_is_clear else "needs_catalog_change",
             "diagnosis": (
-                f'The active catalog entry displays as "{display_name.strip()}".'
+                f'The static catalog entry displays as "{display_name.strip()}"; no slug or display_name edit is indicated.'
                 if display_name_is_clear
                 else "The active model matches its slug, but display_name is blank, so the UI may show only the slug."
             ),
             "catalog_path": catalog_path,
             "model_slug": model_slug,
             "actions": actions,
+            **(
+                {"manual_reminders": [desktop_picker_reminder]}
+                if display_name_is_clear
+                else {}
+            ),
         }
+    desktop_picker_reminder = {
+        "code": "windows_desktop.model_picker_filtering",
+        "status": "manual",
+        "automatic_detection": False,
+        "condition": "App Server 的 model/list 已返回活动 slug，但 Windows Desktop 仍遗漏它或只显示 Custom / 错误元数据。",
+        "references": {
+            "as_of": "2026-08-05",
+            "issues": ["openai/codex#19694", "openai/codex#36582"],
+        },
+    }
     actions = (
         [
             "无需修改 display_name；先确认界面加载的是上述模型目录和 slug。",
-            "完全重启 Codex 并新建任务；旧任务可能继续显示旧名称。",
-            "如果新任务仍显示错误名称，核对实际 Profile 和更高优先级配置层是否切换了 model_catalog_json。",
+            "Windows Desktop 提醒：如果 App Server 的 model/list 已返回该 slug，但下拉框仍遗漏它或只显示 Custom / 错误元数据，应优先参考截至 2026-08-05 的同类缺陷 openai/codex#19694 和 #36582。doctor 无法自动观察界面或远程 available_models 响应，因此不会自动确认为根因；对外表述“仍未解决”前要复核当前 Issue 状态。",
+            f'安全绕过：直接切换 config.toml 中的 model 和 model_provider；仅在当前 Provider 已正确时使用 codex -m "{model_slug}"，或建立不同 Profile。用真实请求确认路由，界面名称不能作为判据。不要自动修改 app.asar；实验补丁必须先备份并另行明确确认。',
         ]
         if display_name_is_clear
         else [
@@ -322,13 +347,18 @@ def _model_name_solution(
         "title": "修正模型名称",
         "status": "configured" if display_name_is_clear else "needs_catalog_change",
         "diagnosis": (
-            f"活动模型目录条目会显示为“{display_name.strip()}”。"
+            f"静态模型目录条目会显示为“{display_name.strip()}”，当前没有需要修改的 slug 或 display_name。"
             if display_name_is_clear
             else "活动模型已匹配 slug，但 display_name 为空，所以界面可能只显示 slug。"
         ),
         "catalog_path": catalog_path,
         "model_slug": model_slug,
         "actions": actions,
+        **(
+            {"manual_reminders": [desktop_picker_reminder]}
+            if display_name_is_clear
+            else {}
+        ),
     }
 
 

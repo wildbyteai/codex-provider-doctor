@@ -176,6 +176,8 @@ class HumanReportTests(unittest.TestCase):
         self.assertIn("Plugin inventory status: unverified", result.stdout)
         self.assertIn("Plugin inventory count: not available", result.stdout)
         self.assertIn("auth.json contents: not read", result.stdout)
+        self.assertIn("Windows Desktop reminder", result.stdout)
+        self.assertIn("does not confirm this cause automatically", result.stdout)
 
     def test_chinese_report_shows_compatibility_changes_without_editing(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

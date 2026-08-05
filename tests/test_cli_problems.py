@@ -443,11 +443,30 @@ class UserProblemGuideTests(unittest.TestCase):
             solution = report["solutions"]["items"][0]
             self.assertEqual(solution["status"], "configured")
             self.assertEqual(
+                solution["diagnosis"],
+                "静态模型目录条目会显示为“Vendor Model V1”，当前没有需要修改的 slug 或 display_name。",
+            )
+            self.assertEqual(
                 solution["actions"],
                 [
                     "无需修改 display_name；先确认界面加载的是上述模型目录和 slug。",
-                    "完全重启 Codex 并新建任务；旧任务可能继续显示旧名称。",
-                    "如果新任务仍显示错误名称，核对实际 Profile 和更高优先级配置层是否切换了 model_catalog_json。",
+                    "Windows Desktop 提醒：如果 App Server 的 model/list 已返回该 slug，但下拉框仍遗漏它或只显示 Custom / 错误元数据，应优先参考截至 2026-08-05 的同类缺陷 openai/codex#19694 和 #36582。doctor 无法自动观察界面或远程 available_models 响应，因此不会自动确认为根因；对外表述“仍未解决”前要复核当前 Issue 状态。",
+                    '安全绕过：直接切换 config.toml 中的 model 和 model_provider；仅在当前 Provider 已正确时使用 codex -m "vendor-model-v1"，或建立不同 Profile。用真实请求确认路由，界面名称不能作为判据。不要自动修改 app.asar；实验补丁必须先备份并另行明确确认。',
+                ],
+            )
+            self.assertEqual(
+                solution["manual_reminders"],
+                [
+                    {
+                        "code": "windows_desktop.model_picker_filtering",
+                        "status": "manual",
+                        "automatic_detection": False,
+                        "condition": "App Server 的 model/list 已返回活动 slug，但 Windows Desktop 仍遗漏它或只显示 Custom / 错误元数据。",
+                        "references": {
+                            "as_of": "2026-08-05",
+                            "issues": ["openai/codex#19694", "openai/codex#36582"],
+                        },
+                    }
                 ],
             )
 

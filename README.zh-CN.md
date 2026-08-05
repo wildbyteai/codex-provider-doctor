@@ -16,7 +16,7 @@
 
 1. **保留官方登录态**：只针对已经明确选择“直接 Token”的自定义第三方 Provider，把 `requires_openai_auth = true` 与 `experimental_bearer_token` 放在该 Provider 的 `[model_providers.<id>]` 内；已有 `env_key/auth` 时必须迁移，不能叠加。再单独确认 `codex login status` 显示 ChatGPT 登录。明文 Token 风险仍独立告警。
 2. **插件、官方插件或 Skill 不可用**：先完全重启 Codex 并新建任务，再区分“本地 Skill 是否仍安装”“Plugins/Settings 是否启用并授权”“新任务是否实际暴露工具”。CLI 清单失败不能作为重装依据。
-3. **模型名称不正确**：确认实际生效的 `model_catalog_json`，让顶层 `model` 精确匹配唯一的 `models[].slug`，并检查该条目的 `display_name`。字段已经正确时不要重复修改，先重启并用新任务验证。
+3. **模型名称不正确**：确认实际生效的 `model_catalog_json`，让顶层 `model` 精确匹配唯一的 `models[].slug`，并检查该条目的 `display_name`。字段已经正确时不要重复修改；如果 Windows Desktop 中 App Server 的 `model/list` 已返回模型，但下拉框仍遗漏它或只显示 `Custom`，优先参考 Desktop 选择器已知同类缺陷，并用配置切换器、CLI 或 Profile 安全绕过。doctor 只做条件式提醒，不会自动观察界面或远程白名单。
 4. **历史任务消失**：只读统计任务绑定的旧 Provider。先切回旧 Provider、使用可用的全部 Provider 视图或升级 Codex；只有确需迁移绑定时，才在退出 Codex、备份数据库及 WAL/SHM、展示字段 diff 并再次确认后处理。
 5. **Chrome 无法调用**：先看活动模型的 `supports_search_tool`，但不能把它当成完整的暴露开关。按 2026-08-05 官方源码，`false` 会让 namespace 工具规划分支进入 Direct；`true` 只有在 namespace tools 同时启用时才允许 Deferred。Chrome 自身声明和真实任务工具列表仍需核验。之后再核对 Plugins/Settings、官方登录、Chrome Profile、连接器授权和真实调用。
 
@@ -47,6 +47,7 @@ Skill 和命令行工具使用同一套诊断代码。Skill 不会全局安装 P
 - 相对路径按“声明这个值的配置文件所在目录”解析，不按猜测搜索。
 - 当前 `model` 是否能在 `models[].slug` 中唯一匹配。
 - `display_name`、`tool_mode`、`supports_search_tool`、`use_responses_lite` 和上下文窗口配置。
+- 当模型目录字段已经正确时，给出 Windows Desktop 选择器条件式提醒，并明确区分静态目录、App Server 列表、桌面下拉框和真实请求四层证据。
 - 默认先输出 5 个问题的结论和恢复步骤，技术证据通过 `--details` 展开。
 - 只统计用户级和可信项目级本地 Skill 数量，不输出 Skill 名称；项目不可信时不扫描项目 Skill，并明确标记覆盖不完整。
 - 面向一般第三方 Responses 模型的 Chrome 症状排查，并说明 Direct 与 Deferred namespace 工具暴露还受运行时条件影响。
@@ -66,6 +67,28 @@ CLI 插件探针只是一个证据来源，不是运行时状态的最终结论�
 如果 CLI 命令失败或返回当前工具不认识的格式，只能说明插件清单尚未核验。它会被记录为 `info / unverified`，单独出现时不会把退出码从 `0` 变成 `1`。即使 CLI 清单成功但没有确认 Chrome，也仍是低优先级辅助证据，不等于真实调用失败。设置页面或实际调用已经正常时，不要重装插件或清理缓存；只有这些更强证据也失败时，才继续考虑修复。
 
 如果用户明确报告 Chrome 不可用，优先使用 `--problem chrome-unavailable`；底层参数 `--symptom chrome-plugin-unavailable` 继续兼容已有集成。按 2026-08-05 官方源码，`supports_search_tool = false` 会让 namespace 工具规划分支进入 Direct，但不能证明 Chrome 已经直接暴露或进入工具列表；`true` 只有在 namespace tools 同时启用时才允许 Deferred，否则仍可能是 Direct。诊断器会把该字段放在排查前部，但真实暴露路径、工具自身声明、设置页面和实际调用必须分开核验。这个检查不会推断或修改顶层 `web_search`。
+
+## Windows Desktop 模型选择器提醒
+
+这个问题目前不适合伪装成全自动检测。doctor 不能只从 `config.toml` 和模型目录判断 Windows Desktop 实际拿到了什么远程 `available_models` 响应，也不能自动观察下拉框最终显示结果。
+
+只有下面的人工证据链同时成立时，才把 Desktop 选择器额外过滤作为首要已知兼容性疑点：
+
+1. 实际生效的模型目录中，活动 `slug` 唯一匹配，且 `display_name` 非空。
+2. App Server 的 `model/list` 已经返回该模型。
+3. Windows Desktop 下拉框仍遗漏模型，或只显示 `Custom`、`Custom High/Max`、错误名称或错误元数据。
+4. 如果要证明模型实际可用，还要用新任务真实请求或 CLI 调用完成烟雾测试；界面标签不能证明实际路由。
+
+截至 2026-08-05，OpenAI 官方仓库中的 [#19694](https://github.com/openai/codex/issues/19694) 与 [#36582](https://github.com/openai/codex/issues/36582) 记录了同类现象。报告会把它们作为带日期的参考快照，并提醒在对外表述“仍未解决”前重新核对当前状态，而不是永久写死结论。
+
+安全绕过顺序：
+
+1. 用配置切换器直接修改 `config.toml` 中的 `model` 和 `model_provider`。
+2. 当前 Provider 已正确时使用 `codex -m <slug>`；跨 Provider 切换时，为官方模型和第三方模型建立不同 Profile。
+3. 新建任务并发起真实请求，核对实际模型行为，不把 Desktop 显示名称当作判据。
+4. 只有 App Server 列表或真实请求也失败时，才回到 Profile、配置优先级和 Provider 请求链排查。
+
+doctor 不会自动修改 `app.asar`。任何实验性 Desktop 补丁都必须先备份、取得明确确认，并提供可恢复路径；它不是默认修复方案。
 
 ## 如何保留官方登录态
 

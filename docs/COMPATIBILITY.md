@@ -2,6 +2,20 @@
 
 Compatibility advice must be tied to an observed version and interface combination. It must never become a silent default for every third-party provider.
 
+## Windows Desktop model picker: manual reminder only
+
+The doctor does not automatically inspect the final Windows Desktop picker or the remote `available_models` response. It therefore never infers this defect from a valid catalog alone.
+
+When `--problem model-name-incorrect` finds an exact active slug match and a non-empty `display_name`, the JSON solution adds `windows_desktop_picker_reminder` with `automatic_detection: false`. The reminder becomes actionable only after manual evidence also confirms:
+
+1. App Server `model/list` returns the active model.
+2. The Windows Desktop picker omits it or shows `Custom`, `Custom High/Max`, or incorrect metadata.
+3. A real request or CLI invocation is used separately to verify actual routing.
+
+Under that evidence chain, additional Desktop filtering is the leading known compatibility suspect, so repeatedly editing a valid catalog, clearing caches, or restarting is not the primary response. The safe workarounds are a `config.toml` switcher, `codex -m <slug>` when the active Provider is already correct, or separate Profiles when switching Providers. The UI label is never treated as proof of the routed model.
+
+The dated reference snapshot is 2026-08-05 and records `openai/codex#19694` plus `openai/codex#36582`. Current issue status must be rechecked before saying the defect remains unresolved. The doctor never patches `app.asar`; experimental application patches require a backup, explicit confirmation, and a recovery path.
+
 ## General Chrome symptom triage
 
 When the user explicitly reports that Chrome is unavailable under a third-party model, run:

@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 - A concise default human report plus `--details` for configuration layers, field origins, and complete evidence.
 - Redacted local Skill counts and an additive JSON `solutions` section.
 - Independent official-login verification state in the sign-in guide, plus per-Provider affected counts and an explicit not-checked state in the history guide.
+- A Windows Desktop model-picker reminder that activates only after static catalog fields are valid, keeps App Server, picker, and live-request evidence separate, and never claims automatic UI detection.
 - Installable Codex Skill metadata with implicit natural-language invocation.
 - A bundled Skill runner that uses the repository source without global package installation.
 - Skill entry-point tests and natural-language installation instructions.
