@@ -72,12 +72,13 @@ class ProviderAuthenticationTests(unittest.TestCase):
                         "auth_command_configured": False,
                         "direct_bearer_token_configured": True,
                         "authentication_intent": {
-                            "combination": "openai_auth_with_explicit_bearer_token",
+                            "combination": "official_login_retained_with_explicit_provider_token",
                             "status": "unverified",
                             "intentional": None,
                             "acknowledgement_code": "provider.auth.openai_with_direct_token",
-                            "official_login_state": "separate_auth_report",
-                            "provider_request_authentication": "explicit_bearer_token_configured",
+                            "official_login_state": "retained_by_requires_openai_auth",
+                            "provider_request_authentication": "explicit_bearer_token_precedes_official_auth",
+                            "requires_openai_auth_config_path": "model_providers.deepseek.requires_openai_auth",
                             "plaintext_token_risk": "independent_warning",
                         },
                     },
@@ -171,10 +172,12 @@ class ProviderAuthenticationTests(unittest.TestCase):
                 {
                     "effective_provider_value": report["provider"]["requires_openai_auth"],
                     "finding_codes": [finding["code"] for finding in report["findings"]],
+                    "remedy": report["findings"][0]["remedy"],
                 },
                 {
                     "effective_provider_value": False,
                     "finding_codes": ["provider.auth.requires_openai_auth_misplaced"],
+                    "remedy": "如果目标是让自定义第三方 Provider 保留官方登录态并使用显式 Token，把 requires_openai_auth = true 放到活动 [model_providers.<id>] 块内；不要放在 TOML 顶层，也不要直接叠加到已有 env_key/auth 上。",
                 },
             )
 
@@ -236,12 +239,13 @@ class ProviderAuthenticationTests(unittest.TestCase):
                         "intentional": 0,
                     },
                     "authentication_intent": {
-                        "combination": "openai_auth_with_explicit_bearer_token",
+                        "combination": "official_login_retained_with_explicit_provider_token",
                         "status": "unverified",
                         "intentional": None,
                         "acknowledgement_code": "provider.auth.openai_with_direct_token",
-                        "official_login_state": "separate_auth_report",
-                        "provider_request_authentication": "explicit_bearer_token_configured",
+                        "official_login_state": "retained_by_requires_openai_auth",
+                        "provider_request_authentication": "explicit_bearer_token_precedes_official_auth",
+                        "requires_openai_auth_config_path": "model_providers.thirdparty.requires_openai_auth",
                         "plaintext_token_risk": "independent_warning",
                     },
                     "findings": [
@@ -325,12 +329,13 @@ class ProviderAuthenticationTests(unittest.TestCase):
                         "intentional": 1,
                     },
                     "authentication_intent": {
-                        "combination": "openai_auth_with_explicit_bearer_token",
+                        "combination": "official_login_retained_with_explicit_provider_token",
                         "status": "acknowledged",
                         "intentional": True,
                         "acknowledgement_code": "provider.auth.openai_with_direct_token",
-                        "official_login_state": "separate_auth_report",
-                        "provider_request_authentication": "explicit_bearer_token_configured",
+                        "official_login_state": "retained_by_requires_openai_auth",
+                        "provider_request_authentication": "explicit_bearer_token_precedes_official_auth",
+                        "requires_openai_auth_config_path": "model_providers.thirdparty.requires_openai_auth",
                         "plaintext_token_risk": "independent_warning",
                     },
                     "intent_finding": {

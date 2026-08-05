@@ -3,12 +3,13 @@
 把下面整段复制给 Codex。默认只检查，不修改。
 
 ```text
-请对我当前电脑上的 Codex 第三方 Provider 做一次完整的只读诊断，目标是解释并定位下面四类问题：
+请对我当前电脑上的 Codex 第三方 Provider 做一次只读诊断，优先解决下面五个问题：
 
-1. Skill 不可用或没有出现在新任务里。
-2. 模型名称显示成不清楚的 slug。
-3. Chrome 插件不可用。
-4. 切换 Provider 后，历史任务像是不见了。
+1. 如何保留官方 ChatGPT/Codex 登录态，同时让第三方 Provider 使用直接 Token。
+2. 切换后插件、官方插件或 Skill 不可用。
+3. 模型名称显示成错误名称或不清楚的 slug。
+4. 切换 Provider 后历史任务不见了。
+5. Chrome 插件无法调用。
 
 安全边界：
 
@@ -55,13 +56,14 @@
 4. 必须恰好匹配一条；零条或重复都要报错。
 5. 只输出活动条目的这些字段：slug、display_name、context_window、effective_context_window_percent、auto_compact_token_limit、tool_mode、supports_search_tool、use_responses_lite。
 6. display_name 缺失或为空时，说明这会导致模型列表只显示 slug 或名称不清楚，但不要替我编造名称。
-7. 分开显示顶层 web_search 和模型条目的 supports_search_tool，不要把它们当成同一个参数。
+7. 如果 slug 和非空 display_name 已经正确，不要继续建议修改字段；先确认界面使用的是这份生效目录，完全重启并用新任务验证，再检查 Profile 或更高优先级配置层。
+8. 分开显示顶层 web_search 和模型条目的 supports_search_tool，不要把它们当成同一个参数。
 
-如果我明确报告“第三方模型下 Chrome 插件不可用”，先把活动模型目录条目的实际 `supports_search_tool` 放到兼容性排查前部：
+如果我明确报告“第三方模型下 Chrome 插件不可用”，先把活动模型目录条目的实际 `supports_search_tool` 放到兼容性排查前部，并按当前工具暴露语义解释：
 
 - 仅当当前是第三方 Responses Provider 时适用；不要限定为 DeepSeek。
-- `supports_search_tool = false` 时，标记为“首要静态兼容性疑点”：它可能导致或伴随工具能力不兼容，但不能据此断言为唯一根因，也不能直接推导出应该改成 `true`。
-- `supports_search_tool = true` 时，说明这个静态字段没有指向当前症状，继续检查设置页面、插件授权、CLI 清单和真实调用。
+- `supports_search_tool = false` 时，按 2026-08-05 官方源码会让 namespace 工具规划条件回落到 Direct；这不能证明 Chrome 自身声明为 Direct 或已经进入真实任务工具列表，这个值本身也不是故障证据。
+- `supports_search_tool = true` 时，只有 namespace tools 同时启用才允许 Deferred，否则仍可能走 Direct；不能仅凭这个字段判定 Chrome 暴露路径或根因。
 - 把模型目录静态证据、插件清单证据和真实调用烟雾测试分开写；真实调用仍是更强证据。
 - 不要自动推断或修改顶层 `web_search`，也不要因为 CLI 插件清单探针失败就建议重装插件。
 
@@ -79,22 +81,25 @@
 
 1. 读取最终 model_provider，并定位对应的 [model_providers.<id>]。
 2. 检查 name、base_url 主机名、wire_api、requires_openai_auth、env_key、auth 和 experimental_bearer_token 是否存在。
-3. requires_openai_auth 必须位于活动 Provider 块内。顶层同名字段不能算作活动 Provider 配置。
-4. requires_openai_auth = true 的准确含义是“这个 Provider 使用 OpenAI 认证”；此时 Codex 会忽略 env_key。
-5. 它不是“保留官方 ChatGPT 登录态”的通用开关。第三方接口使用自己的 API Key 时，通常应使用 env_key，并把官方登录态作为另一项独立检查。
-6. 明确冲突要报错：requires_openai_auth = true 时 env_key 会被忽略；env_key 和 experimental_bearer_token 会竞争 Provider Token；[model_providers.<id>.auth] 不能再和其他认证字段组合。
-7. requires_openai_auth = true 与 experimental_bearer_token 同时存在时，不要直接判成必然错误。必须分开表达：官方 ChatGPT/Codex 登录状态独立检查；第三方 Provider 请求存在显式 Token；requires_openai_auth 仍是 Provider 请求认证字段，不是保留官方登录状态的通用开关。用户尚未确认意图时标记为 info / unverified；用户明确确认后标记为 acknowledged / intentional，不再把它列为故障根因。
-8. Token 明文存储必须作为独立 warning 保留，不能因为认证意图已确认而隐藏。
-9. 对 env_key 只检查当前启动环境中是否存在非空值，不读取或输出值。
+3. requires_openai_auth 必须位于活动 `[model_providers.<id>]` 块内。顶层同名字段不能算作活动 Provider 配置。
+4. 对已经确认的双认证设计，`requires_openai_auth = true` 保留官方 ChatGPT/Codex 账户状态，`experimental_bearer_token` 优先用于第三方 Provider 请求。
+5. 这套双认证只适用于自定义第三方 Provider，不要套到内置 `openai` Provider。
+6. 用户明确要求保留官方登录态时，把这个组合标记为 acknowledged / intentional；不能再建议删除 `requires_openai_auth` 或改成 `false`。
+7. 如果当前 Provider 已经使用 `env_key` 或 `[model_providers.<id>.auth]` 命令认证，不要直接叠加双认证字段；先给出备份方案和完整字段迁移 diff，在一次受控修改中切换请求认证方式。
+8. `env_key`、`experimental_bearer_token` 和 `[model_providers.<id>.auth]` 的其他组合仍按当前版本实际优先级单独判断，不要把双认证设计混入普通冲突。
+9. 插件是否真实可用仍需新任务、设置页面和实际调用验证，不能只从认证字段推断。
+10. Token 明文存储必须作为独立 warning 保留，不能因为认证意图已确认而隐藏。
+11. 对 env_key 只检查当前启动环境中是否存在非空值，不读取或输出值。
 
 六、分别确认官方登录、插件和 Chrome
 
 1. 运行 codex login status，只保留 ChatGPT、API key、access token、signed out 或 unknown 这类结果。
-2. 运行 codex plugin list --json。兼容顶层 installed/available 结构，也兼容旧数组结构；报告只保留插件总数，以及精确匹配到的 Chrome installed 和 enabled 聚合状态，不输出其他插件名称或标识符。
-3. 检查 features.apps 和 features.remote_plugin 是否被关闭。
-4. 确认 Chrome 插件已安装并开启。
-5. 按证据强弱判断插件与 Chrome 状态：实际调用成功 > 当前任务已提供目标工具或设置页面可见 > codex plugin list --json 成功 > 静态配置推断。CLI 探针失败或输出无法解析，只表示清单未核验，必须标成 info / unverified，单独出现时不改变退出码 0；界面或实际调用正常时，不建议重装插件或清理缓存。
-6. 人工检查必须列出：
+2. 本地 Skill 只统计数量，不输出名称。用户级 Skill 可以只读计数；项目级 Skill 只有在项目已受信任时才扫描，项目不可信或状态未知时跳过并标记覆盖不完整，不能为了完成检查而修改信任状态。
+3. 运行 codex plugin list --json。兼容顶层 installed/available 结构，也兼容旧数组结构；报告只保留插件总数，以及精确匹配到的 Chrome installed 和 enabled 聚合状态，不输出其他插件名称或标识符。
+4. 检查 features.apps 和 features.remote_plugin 是否被关闭。
+5. 确认 Chrome 插件已安装并开启。
+6. 按证据强弱判断插件与 Chrome 状态：实际调用成功 > 当前任务已提供目标工具或设置页面可见 > codex plugin list --json 成功 > 静态配置推断。CLI 探针失败或输出无法解析，只表示清单未核验，必须标成 info / unverified，单独出现时不改变退出码 0；界面或实际调用正常时，不建议重装插件或清理缓存。
+7. 人工检查必须列出：
    - 使用的是 Google Chrome，不是其他 Chromium 浏览器；
    - 当前 Chrome Profile 正是安装并启用 ChatGPT 扩展的 Profile；
    - ChatGPT/Codex 的 Computer Use 没有阻止目标网站；
@@ -111,25 +116,36 @@
 4. 只统计：任务总数、绑定当前 Provider 的数量、绑定其他 Provider 的数量、其中未归档数量；并按每个 model_provider 给出全部、未归档和已归档数量。
 5. 不读取任务标题、消息、预览或正文。
 6. 如果存在未归档的其他 Provider 任务，默认只说明：任务文件可能仍在，但在会按 Provider 过滤任务的版本里可能不显示。这是本地观察，不是所有 Codex 版本的官方保证。
-7. 只有用户明确确认“本次历史任务不可见就是由这些 Provider 绑定不一致造成”后，才把结论升级为“用户确认的根因”；同时写清自动探针证明的是绑定差异，因果确认来自用户对本次现象的确认。
-8. 本轮禁止 UPDATE、迁移、删除、VACUUM、覆盖数据库或复制 auth.json。任何未来修复都必须先退出相关进程，完整备份数据库及其 WAL/SHM 旁路文件，展示精确行数和字段 diff，并再次取得明确确认。
+7. 如果没有找到兼容数据库或只读探针失败，只能写“尚未核验”，不能写成“未发现 Provider 绑定差异”。
+8. 如果未归档任务分属多个旧 Provider，逐个输出聚合数量，不能把总数全部归到其中一个 Provider。
+9. 只有用户明确确认“本次历史任务不可见就是由这些 Provider 绑定不一致造成”后，才把结论升级为“用户确认的根因”；同时写清自动探针证明的是绑定差异，因果确认来自用户对本次现象的确认。
+10. 本轮禁止 UPDATE、迁移、删除、VACUUM、覆盖数据库或复制 auth.json。任何未来修复都必须先退出相关进程，完整备份数据库及其 WAL/SHM 旁路文件，展示精确行数和字段 diff，并再次取得明确确认。
 
 八、输出报告
 
 请按下面结构输出：
 
-1. 总结：错误数、警告数、info 数、未核验数、已确认意图数、已确认根因数；有用户确认根因时直接写“已确认根因”，否则只给证据支持的首要诊断。
-2. 生效配置层：每层是否存在、是否加载、关键来源。
-3. 模型目录：实际路径和活动模型字段。
-4. Provider 认证：官方登录和第三方认证分开写。
-5. Skill / 插件 / Chrome：自动检查结果和人工验收项。
-6. 历史任务：只读聚合结果和风险解释。
-7. 建议修改：只给逐字段 diff，不执行。
-8. 明确声明：没有读取 auth.json 内容，没有输出密钥，没有修改任何文件或数据库。
+1. 先按用户选中的问题给出：当前判断、立即恢复方法、需要修改的位置、仍需人工验证的边界。
+2. 默认不要先展开配置层。只有用户要求技术证据时，才使用 `--details` 展示生效配置层、字段来源、模型目录、认证、插件和历史聚合。
+3. 有用户确认根因时直接写“已确认根因”，否则只给证据支持的判断。
+4. 建议修改只给逐字段 diff，不执行。
+5. 明确声明：没有读取 auth.json 内容，没有输出密钥，没有修改任何文件或数据库。
 
 如果本机已经安装 codex-provider-doctor，优先运行：
 
 codex-provider-doctor --json
+
+根据用户问题添加一个或多个入口：
+
+--problem keep-official-login
+--problem plugins-or-skills-unavailable
+--problem model-name-incorrect
+--problem history-missing
+--problem chrome-unavailable
+
+只有需要配置层和完整证据时才加：
+
+--details
 
 如果我明确说正在核对 2026-08-03 的兼容案例，再加：
 

@@ -2,18 +2,23 @@
 
 [English](README.md)
 
-这是一个专门排查 Codex 第三方 Provider 的本地只读工具，也是官方 `codex doctor` 的补充。
+这是一个围绕 5 个真实痛点设计的 Codex 第三方 Provider 本地只读恢复工具，也是官方 `codex doctor` 的补充：
 
-很多人接入第三方 API 后，模型还能正常聊天，但问题集中出现在四个地方：
-
-1. Skill 用不了了。
-2. 模型名称显示不清晰。
-3. Chrome 插件用不了。
-4. 历史任务像是突然不见了。
-
-前三个问题，不能只盯着一行参数。要把最终生效的 `config.toml`，以及它真正引用的模型目录 JSON 一起看。第四个问题还可能和本地任务数据库里保存的 `model_provider` 有关。
+1. 如何保留官方登录态。
+2. 切换后插件、官方插件或 Skill 不可用怎么办。
+3. 模型名称显示不正确怎么办。
+4. 历史任务消失是什么原因，怎么恢复。
+5. Chrome 插件无法调用怎么办。
 
 当前版本只检测、解释、给出建议，不自动修改任何文件或数据库。
+
+## 五个问题，先这样处理
+
+1. **保留官方登录态**：只针对已经明确选择“直接 Token”的自定义第三方 Provider，把 `requires_openai_auth = true` 与 `experimental_bearer_token` 放在该 Provider 的 `[model_providers.<id>]` 内；已有 `env_key/auth` 时必须迁移，不能叠加。再单独确认 `codex login status` 显示 ChatGPT 登录。明文 Token 风险仍独立告警。
+2. **插件、官方插件或 Skill 不可用**：先完全重启 Codex 并新建任务，再区分“本地 Skill 是否仍安装”“Plugins/Settings 是否启用并授权”“新任务是否实际暴露工具”。CLI 清单失败不能作为重装依据。
+3. **模型名称不正确**：确认实际生效的 `model_catalog_json`，让顶层 `model` 精确匹配唯一的 `models[].slug`，并检查该条目的 `display_name`。字段已经正确时不要重复修改，先重启并用新任务验证。
+4. **历史任务消失**：只读统计任务绑定的旧 Provider。先切回旧 Provider、使用可用的全部 Provider 视图或升级 Codex；只有确需迁移绑定时，才在退出 Codex、备份数据库及 WAL/SHM、展示字段 diff 并再次确认后处理。
+5. **Chrome 无法调用**：先看活动模型的 `supports_search_tool`，但不能把它当成完整的暴露开关。按 2026-08-05 官方源码，`false` 会让 namespace 工具规划分支进入 Direct；`true` 只有在 namespace tools 同时启用时才允许 Deferred。Chrome 自身声明和真实任务工具列表仍需核验。之后再核对 Plugins/Settings、官方登录、Chrome Profile、连接器授权和真实调用。
 
 ## 使用 Skill（推荐）
 
@@ -26,7 +31,7 @@
 安装完成后新建一个任务；如果技能列表没有刷新，再重启 Codex。然后说：
 
 ```text
-帮我检查 Codex 接入第三方 API 后，Skill、模型名称、Chrome 插件和历史任务为什么不正常。
+帮我检查 Codex 切换第三方 API 后，怎么保留官方登录，并恢复插件、Skill、模型名称、历史任务和 Chrome。
 ```
 
 安装参数、仓库根目录和 Skill 名称由 Agent 自己处理。如果当前任务没有匹配到 Skill，再显式说“使用 `$codex-provider-doctor` 检查”。Agent 会自己运行仓库内置的只读检测入口，再用中文解释结果；不需要用户复制 `codex-provider-doctor` 命令。
@@ -42,7 +47,9 @@ Skill 和命令行工具使用同一套诊断代码。Skill 不会全局安装 P
 - 相对路径按“声明这个值的配置文件所在目录”解析，不按猜测搜索。
 - 当前 `model` 是否能在 `models[].slug` 中唯一匹配。
 - `display_name`、`tool_mode`、`supports_search_tool`、`use_responses_lite` 和上下文窗口配置。
-- 面向一般第三方 Responses 模型的 Chrome 症状排查，并安全对照 `supports_search_tool = false` 与 `true`。
+- 默认先输出 5 个问题的结论和恢复步骤，技术证据通过 `--details` 展开。
+- 只统计用户级和可信项目级本地 Skill 数量，不输出 Skill 名称；项目不可信时不扫描项目 Skill，并明确标记覆盖不完整。
+- 面向一般第三方 Responses 模型的 Chrome 症状排查，并说明 Direct 与 Deferred namespace 工具暴露还受运行时条件影响。
 - 活动 Provider 的 `requires_openai_auth`、`env_key`、命令认证和明文 Token 冲突，并把已确认意图与独立安全风险分开。
 - 官方 Codex 登录方式，以及 CLI 只读探针成功时的插件总数和 Chrome 开启状态；探针失败时明确保留为“未核验”，不会在报告里列出其他插件名称。
 - 历史任务按 `model_provider` 分组的总数、未归档数和已归档数。
@@ -58,15 +65,26 @@ CLI 插件探针只是一个证据来源，不是运行时状态的最终结论�
 
 如果 CLI 命令失败或返回当前工具不认识的格式，只能说明插件清单尚未核验。它会被记录为 `info / unverified`，单独出现时不会把退出码从 `0` 变成 `1`。即使 CLI 清单成功但没有确认 Chrome，也仍是低优先级辅助证据，不等于真实调用失败。设置页面或实际调用已经正常时，不要重装插件或清理缓存；只有这些更强证据也失败时，才继续考虑修复。
 
-如果用户明确报告“第三方模型下 Chrome 插件不可用”，诊断时增加 `--symptom chrome-plugin-unavailable`。当活动 Provider 是第三方 Responses 接口时，`supports_search_tool = false` 会被列为首要静态兼容性疑点：它可能导致或伴随工具能力不兼容，但不是唯一根因的证明，也不等于应该自动改成 `true`。如果值为 `true`，就降低这一字段的嫌疑，继续检查设置页面、授权、插件清单和真实调用。这个检查不会推断或修改顶层 `web_search`。
+如果用户明确报告 Chrome 不可用，优先使用 `--problem chrome-unavailable`；底层参数 `--symptom chrome-plugin-unavailable` 继续兼容已有集成。按 2026-08-05 官方源码，`supports_search_tool = false` 会让 namespace 工具规划分支进入 Direct，但不能证明 Chrome 已经直接暴露或进入工具列表；`true` 只有在 namespace tools 同时启用时才允许 Deferred，否则仍可能是 Direct。诊断器会把该字段放在排查前部，但真实暴露路径、工具自身声明、设置页面和实际调用必须分开核验。这个检查不会推断或修改顶层 `web_search`。
 
-## 先记住一个最容易配错的地方
+## 如何保留官方登录态
 
-`requires_openai_auth = true` 的意思是：这个 Provider 使用 OpenAI 认证。
+已经确认的双认证配置必须这样放：
 
-它不是“保留官方登录态”的通用开关。设置为 `true` 后，Codex 会忽略这个 Provider 的 `env_key`。
+```toml
+model = "vendor-model"
+model_provider = "vendor"
 
-也有已观察到的设计把官方登录状态独立保留，同时让第三方 Provider 请求使用 `experimental_bearer_token`，并把 `requires_openai_auth = true` 作为版本敏感的兼容字段继续保留；用户意图可以是继续使用官方插件能力，但插件是否真实可用仍要单独做运行时验证。这里不能把 `requires_openai_auth` 本身解释成“保留官方登录态”的开关。这种做法依赖具体版本，而且 Token 明文保存在配置里；工具不会直接判成必然错误，也不会自动删除字段，但会继续保留独立风险 warning。
+[model_providers.vendor]
+base_url = "https://provider.example/v1"
+wire_api = "responses"
+requires_openai_auth = true
+experimental_bearer_token = "<第三方 Token>"
+```
+
+这套写法只适用于自定义第三方 Provider，不要套到内置 `openai` Provider。若活动第三方 Provider 已经使用 `env_key` 或 `[model_providers.<id>.auth]` 命令认证，不能直接叠加上述字段；应先备份配置并展示一次完整的逐字段迁移 diff，在同一次受控修改中移除旧请求认证方式，再加入已确认的双认证字段。
+
+关键是 `requires_openai_auth = true` 必须位于活动 `[model_providers.<id>]` 内，不能放在 TOML 顶层。截至 2026-08-05，[当前 Codex Provider 认证源码](https://github.com/openai/codex/blob/main/codex-rs/model-provider/src/provider.rs)会保留官方 ChatGPT/Codex 账户状态，同时让显式 Provider Token 优先用于第三方请求。插件是否真实可用仍需新任务和实际调用验证；明文 Token 风险也必须继续单独警告。
 
 所以要分开看三件事：
 
@@ -76,7 +94,13 @@ CLI 插件探针只是一个证据来源，不是运行时状态的最终结论�
 
 Chrome、插件、连接器或 MCP 是否安装、开启并完成授权，属于认证之外的另一组运行时能力检查。
 
-如果用户已经明确确认这组认证组合就是有意设计，可以在诊断时记录该意图：
+用户明确要保留官方登录态时，直接运行：
+
+```shell
+codex-provider-doctor --problem keep-official-login
+```
+
+旧的显式确认参数继续兼容：
 
 ```shell
 codex-provider-doctor \
@@ -113,6 +137,22 @@ python -m pip install -e .
 codex-provider-doctor
 ```
 
+默认报告会直接显示 5 个问题。只排查一个问题时使用：
+
+```shell
+codex-provider-doctor --problem keep-official-login
+codex-provider-doctor --problem plugins-or-skills-unavailable
+codex-provider-doctor --problem model-name-incorrect
+codex-provider-doctor --problem history-missing
+codex-provider-doctor --problem chrome-unavailable
+```
+
+需要展开配置层、字段来源和完整技术证据时再加：
+
+```shell
+codex-provider-doctor --details
+```
+
 输出 JSON 报告：
 
 ```shell
@@ -125,7 +165,7 @@ codex-provider-doctor --json
 codex-provider-doctor --profile work
 ```
 
-如果明确报告第三方模型下 Chrome 插件不可用：
+底层 Chrome 症状参数继续供已有集成使用：
 
 ```shell
 codex-provider-doctor \
@@ -195,6 +235,7 @@ codex doctor
 - 插件报告新增 `inventory_status`；命令失败、JSON 无效或 JSON 结构不受支持时，`probe` 保持为 `failed`，清单状态诚实地保持为 `unverified`。
 - 模型目录报告新增 `model_count`。
 - 历史任务报告新增 `provider_counts`。
+- 报告新增本地 `skills` 数量，以及面向 5 个问题的 `solutions`；登录方案包含独立的官方登录核验状态，历史方案包含受影响旧 Provider 的聚合数量。
 - 兼容报告新增一般 Chrome 排查使用的 `symptom_assessments`，以及带日期规则使用的 `field_assessments` 和 `observed_differences`；`suggested_changes` 不包含只按症状观察的字段。
 - JSON finding 数组保持诊断生成顺序；优先级排序只用于人类可读报告，不改变机器输出顺序。
 

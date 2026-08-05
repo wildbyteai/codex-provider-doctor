@@ -27,14 +27,14 @@ ENGLISH_FINDINGS: dict[str, tuple[str, str, str]] = {
         "Prefer env_key or a command credential helper, then rotate any token stored in plaintext.",
     ),
     "provider.auth.openai_with_direct_token": (
-        "The authentication combination intent is unverified",
-        "The configuration contains an OpenAI-authentication field plus an explicit third-party Provider token, but the doctor cannot infer user intent. Official sign-in state is diagnosed separately, and requires_openai_auth is not an official-login retention switch.",
-        "Only after explicit user confirmation, record the intent with --acknowledge provider.auth.openai_with_direct_token. Do not remove either field automatically, and keep plaintext-token risk as a separate warning.",
+        "The dual-authentication intent is unverified",
+        "The active provider sets requires_openai_auth = true plus an explicit third-party token. This retains the official account state while the explicit token takes precedence for provider requests, but the doctor cannot infer user intent without confirmation.",
+        "When the user explicitly wants to keep the official sign-in, record it with --problem keep-official-login or --acknowledge provider.auth.openai_with_direct_token. Keep plaintext-token risk as a separate warning.",
     ),
     "provider.auth.requires_openai_auth_misplaced": (
         "requires_openai_auth is in the wrong table",
         "A top-level requires_openai_auth value does not configure the active provider.",
-        "Move it under [model_providers.<active-id>] only when that provider really uses OpenAI authentication; otherwise remove it.",
+        "For the custom third-party dual-authentication design, move it under [model_providers.<active-id>]. Do not apply the pattern to the built-in OpenAI provider or stack it on an existing env_key/auth method.",
     ),
     "provider.auth.env_missing": (
         "The provider API key environment variable is not set",
@@ -86,10 +86,10 @@ ENGLISH_FINDINGS: dict[str, tuple[str, str, str]] = {
         "The selected dated case recommends changing supports_search_tool or use_responses_lite. tool_mode is reviewed only when direct tools, skills, or Chrome show symptoms.",
         "Back up the catalog, review suggested_changes, and do not disable top-level web_search because of supports_search_tool. Restart Codex and test each tool surface separately after any edit.",
     ),
-    "compat.chrome.supports_search_tool_false": (
-        "Primary static Chrome compatibility suspect: supports_search_tool = false",
-        "The user reported that Chrome is unavailable, and the selected third-party Responses model has supports_search_tool set to false. This field belongs near the front of compatibility triage because it may cause or accompany tool-capability incompatibility, but it does not prove a unique root cause.",
-        "Compare a live smoke test, the Settings or Plugins page, and the CLI inventory as separate evidence. Do not change top-level web_search, and do not reinstall plugins merely because the CLI inventory probe failed. Back up the catalog before any controlled field experiment.",
+    "compat.chrome.exposure_mode_unverified": (
+        "supports_search_tool = true does not determine Chrome exposure by itself",
+        "Under the official Codex source as of 2026-08-05, this field permits Deferred exposure only when namespace tools are also enabled; otherwise the Direct branch is used. Tool declarations and the live task tool list remain separate evidence.",
+        "Check namespace-tool capability, tool_search, and the Chrome tool in a new task on the installed Codex version. Only after runtime evidence confirms a deferred-discovery incompatibility should a backed-up catalog experiment be considered. Do not change top-level web_search or reinstall a plugin because the CLI inventory failed.",
     ),
     "compat.rule_version_differs": (
         "The selected compatibility rule was observed on a different Codex version",
@@ -266,12 +266,12 @@ def localize_report(report: dict[str, Any], language: str) -> dict[str, Any]:
             item["code"] == "provider.auth.openai_with_direct_token"
             and item.get("status") == "acknowledged"
         ):
-            item["title"] = "The authentication combination is acknowledged as intentional"
+            item["title"] = "The dual-authentication configuration is acknowledged as intentional"
             item["message"] = (
-                "The user explicitly confirmed the design intent: official ChatGPT/Codex sign-in remains available as a separate state while third-party provider requests use an explicit token, so official plugin capabilities can continue to be used. Actual plugin availability still requires separate runtime verification. requires_openai_auth is a provider-request authentication field, not an official-login retention switch. This is version-sensitive compatibility behavior, not a universal secure default."
+                "The user explicitly confirmed the design intent: requires_openai_auth = true under the active model_providers table retains the official ChatGPT/Codex account state, while the explicit bearer token takes precedence for third-party provider requests. Actual plugin availability still requires separate runtime verification."
             )
             item["remedy"] = (
-                "Preserve the acknowledged behavior, test official sign-in and third-party model requests separately, keep the plaintext-token risk as an independent warning, and do not present the acknowledged intent as a fault cause."
+                "Keep the dual-authentication configuration, test official sign-in and third-party model requests separately, and keep plaintext-token risk as an independent warning."
             )
         if (
             item["code"] == "history.provider_mismatch"
@@ -321,23 +321,25 @@ def _finding_sort_key(item: dict[str, Any]) -> int:
         return 0
     if item.get("status") == "confirmed" and item.get("category") == "diagnostic":
         return 1
-    if item.get("code") == "compat.chrome.supports_search_tool_false":
+    if item.get("code") == "plugins.feature.apps_disabled":
         return 2
-    if item.get("code") == "compat.deepseek_direct_tools.mismatch":
+    if item.get("code") == "plugins.feature.remote_plugin_disabled":
         return 3
-    if item.get("severity") == "warning" and item.get("category") == "diagnostic":
+    if item.get("code") == "compat.deepseek_direct_tools.mismatch":
         return 4
-    if item.get("severity") == "warning" and item.get("category") == "security":
+    if item.get("severity") == "warning" and item.get("category") == "diagnostic":
         return 5
-    if item.get("severity") == "warning":
+    if item.get("severity") == "warning" and item.get("category") == "security":
         return 6
-    if item.get("status") == "acknowledged":
+    if item.get("severity") == "warning":
         return 7
-    if item.get("category") == "intent":
+    if item.get("status") == "acknowledged":
         return 8
-    if item.get("category") == "verification":
+    if item.get("category") == "intent":
         return 9
-    return 10
+    if item.get("category") == "verification":
+        return 10
+    return 11
 
 
 def _compatibility_reason(reason: Any, language: str) -> str:
@@ -364,13 +366,15 @@ def _compatibility_reason(reason: Any, language: str) -> str:
 def _symptom_assessment_label(assessment: Any, language: str) -> str:
     labels = {
         "en": {
-            "primary_static_compatibility_suspect": "primary static compatibility suspect",
+            "direct_namespace_branch_forced": "the catalog field forces the Direct namespace branch; live Chrome exposure is unverified",
+            "exposure_mode_runtime_dependent": "Direct versus Deferred remains runtime-dependent",
             "not_indicated_by_static_field": "not indicated by this static field",
             "field_unavailable": "the catalog field is unavailable",
             "not_applicable": "not applicable to the selected model or provider",
         },
         "zh-CN": {
-            "primary_static_compatibility_suspect": "首要静态兼容性疑点",
+            "direct_namespace_branch_forced": "该字段会让 namespace 分支进入 Direct；Chrome 实际暴露仍待核验",
+            "exposure_mode_runtime_dependent": "Direct 或 Deferred 仍取决于运行时条件",
             "not_indicated_by_static_field": "该静态字段未指向兼容性问题",
             "field_unavailable": "模型目录字段不可用",
             "not_applicable": "不适用于当前模型或 Provider",
@@ -406,7 +410,119 @@ def _finding_label(item: dict[str, Any], language: str) -> str:
     )
 
 
-def render_human(report: dict[str, Any], language: str) -> str:
+def _solution_status_label(status: Any, language: str) -> str:
+    labels = {
+        "en": {
+            "configured_with_security_warning": "configured; security warning remains",
+            "configured_login_unverified_with_security_warning": "provider configured; official sign-in unverified; security warning remains",
+            "configured_official_login_not_confirmed_with_security_warning": "provider configured; official sign-in not confirmed; security warning remains",
+            "configured_intent_unverified_with_security_warning": "dual-authentication intent unverified; security warning remains",
+            "needs_configuration": "configuration required",
+            "needs_auth_method_transition": "authentication method transition required",
+            "not_applicable_builtin_provider": "not applicable to the built-in provider",
+            "configured": "configured",
+            "needs_catalog_change": "catalog change required",
+            "needs_catalog_match": "catalog match required",
+            "confirmed_root_cause": "confirmed root cause",
+            "binding_mismatch_detected": "provider mismatch detected",
+            "no_provider_mismatch_detected": "no provider mismatch detected",
+            "history_not_checked": "history binding not checked",
+            "installation_present_runtime_unverified": "installation found; runtime unverified",
+            "installation_present": "installation found",
+            "plugin_features_disabled": "plugin features disabled",
+            "skill_installation_not_found": "skill installation not found",
+            "skill_installation_unverified": "skill installation only partially verified",
+            "direct_namespace_branch_runtime_unverified": "Direct namespace branch forced; Chrome exposure unverified",
+            "exposure_mode_runtime_unverified": "tool exposure mode requires runtime verification",
+            "remote_plugin_directory_disabled_runtime_unverified": "remote plugin directory disabled; Chrome impact unverified",
+            "runtime_verification_required": "runtime verification required",
+        },
+        "zh-CN": {
+            "configured_with_security_warning": "配置正确；仍有安全警告",
+            "configured_login_unverified_with_security_warning": "Provider 配置正确；官方登录待核验；仍有安全警告",
+            "configured_official_login_not_confirmed_with_security_warning": "Provider 配置正确；未确认官方登录；仍有安全警告",
+            "configured_intent_unverified_with_security_warning": "检测到双认证组合；意图待确认；仍有安全警告",
+            "needs_configuration": "需要配置",
+            "needs_auth_method_transition": "需要迁移认证方式",
+            "not_applicable_builtin_provider": "不适用于内置 Provider",
+            "configured": "配置正确",
+            "needs_catalog_change": "需要修改模型目录",
+            "needs_catalog_match": "需要修正目录匹配",
+            "confirmed_root_cause": "已确认根因",
+            "binding_mismatch_detected": "已发现 Provider 绑定差异",
+            "no_provider_mismatch_detected": "未发现 Provider 绑定差异",
+            "history_not_checked": "历史 Provider 绑定尚未核验",
+            "installation_present_runtime_unverified": "已发现安装；运行状态待核验",
+            "installation_present": "已发现安装",
+            "plugin_features_disabled": "插件能力被关闭",
+            "skill_installation_not_found": "未发现本地 Skill",
+            "skill_installation_unverified": "Skill 安装仅部分核验",
+            "direct_namespace_branch_runtime_unverified": "namespace 分支进入 Direct；Chrome 暴露待核验",
+            "exposure_mode_runtime_unverified": "工具暴露路径需运行时核验",
+            "remote_plugin_directory_disabled_runtime_unverified": "远程插件目录已关闭；对 Chrome 的影响待核验",
+            "runtime_verification_required": "需要运行时核验",
+        },
+    }
+    return labels[language].get(str(status), str(status))
+
+
+def _append_solution_guides(
+    lines: list[str],
+    report: dict[str, Any],
+    language: str,
+) -> None:
+    items = report.get("solutions", {}).get("items", [])
+    heading = (
+        f"The {len(items)} problems to solve"
+        if language == "en"
+        else f"你要解决的 {len(items)} 个问题"
+    )
+    lines.extend(["", heading])
+    for index, item in enumerate(items, start=1):
+        status = _solution_status_label(item.get("status"), language)
+        lines.append(f"{index}. {item['title']} [{status}]" if language == "en" else f"{index}. {item['title']}【{status}】")
+        lines.append(
+            f"   Diagnosis: {item['diagnosis']}"
+            if language == "en"
+            else f"   判断：{item['diagnosis']}"
+        )
+        for action_index, action in enumerate(item.get("actions", [])):
+            if language == "en":
+                prefix = "   Action:" if action_index == 0 else "   -"
+            else:
+                prefix = "   处理：" if action_index == 0 else "   - "
+            lines.append(f"{prefix} {action}" if language == "en" else f"{prefix}{action}")
+
+
+def _finish_compact_report(
+    lines: list[str],
+    attention: list[dict[str, Any]],
+    language: str,
+) -> str:
+    if attention:
+        lines.extend(["", "Other findings requiring attention" if language == "en" else "其他需要处理"])
+        for item in attention:
+            lines.extend(
+                [
+                    f"[{_finding_label(item, language)}] {item['title']}" if language == "en" else f"【{_finding_label(item, language)}】{item['title']}",
+                    f"  Action: {item['remedy']}" if language == "en" else f"  怎么处理：{item['remedy']}",
+                ]
+            )
+    lines.extend(
+        [
+            "",
+            "Use --details to view configuration layers, field origins, and complete diagnostic evidence."
+            if language == "en"
+            else "使用 --details 查看配置层、字段来源和完整诊断证据。",
+            "This report is read-only. It did not modify Codex configuration."
+            if language == "en"
+            else "本报告只读，没有修改任何 Codex 配置。",
+        ]
+    )
+    return "\n".join(lines) + "\n"
+
+
+def render_human(report: dict[str, Any], language: str, *, details: bool = False) -> str:
     summary = report["summary"]
     effective = report["effective"]
     provider = report["provider"]
@@ -436,6 +552,13 @@ def render_human(report: dict[str, Any], language: str) -> str:
                     if primary
                     else "Primary diagnosis: no confirmed configuration fault was identified."
                 ),
+            ]
+        )
+        _append_solution_guides(lines, report, language)
+        if not details:
+            return _finish_compact_report(lines, attention, language)
+        lines.extend(
+            [
                 "",
                 "Effective configuration",
                 f"- Model: {_value(effective['model'], '(not set)')}",
@@ -467,7 +590,7 @@ def render_human(report: dict[str, Any], language: str) -> str:
                 "",
                 "Provider request authentication",
                 f"- Endpoint host: {_value(provider['host'], '(built-in or not set)')}",
-                f"- requires_openai_auth: {_value(provider['requires_openai_auth'], '(not set)')} (provider-request field; not the official sign-in state)",
+                f"- requires_openai_auth: {_value(provider['requires_openai_auth'], '(not set)')} (under [model_providers.{provider['id']}]; true retains the official account state)",
                 f"- env_key: {_value(provider['env_key'], '(not set)')}",
                 f"- env_key is set: {_value(provider['env_key_is_set'], '(not applicable)')}",
                 f"- Explicit bearer token: {'configured (value not read)' if provider['direct_bearer_token_configured'] else 'not configured'}",
@@ -522,6 +645,7 @@ def render_human(report: dict[str, Any], language: str) -> str:
                         f"- supports_search_tool: {_value(assessment['observed_supports_search_tool'], '(unavailable)')}",
                         f"- Assessment: {_symptom_assessment_label(assessment['assessment'], language)}",
                         "- Evidence type: static model-catalog field",
+                        f"- Namespace-tools feature state: {assessment.get('namespace_tools_feature_state', 'not checked')}",
                         "- Live smoke test: not run by the doctor",
                         "- Boundary: plugin inventory, Settings visibility, and live invocation remain separate evidence; this field alone does not prove a unique root cause.",
                     ]
@@ -583,6 +707,13 @@ def render_human(report: dict[str, Any], language: str) -> str:
         [
             conclusion,
             primary_line,
+        ]
+    )
+    _append_solution_guides(lines, report, language)
+    if not details:
+        return _finish_compact_report(lines, attention, language)
+    lines.extend(
+        [
             "",
             "生效配置",
             f"- 模型：{_value(effective['model'], '未设置')}",
@@ -614,7 +745,7 @@ def render_human(report: dict[str, Any], language: str) -> str:
             "",
             "Provider 请求认证",
             f"- 接口主机：{_value(provider['host'], '内置或未设置')}",
-            f"- requires_openai_auth：{_value(provider['requires_openai_auth'], '未设置')}（只描述 Provider 请求认证，不代表官方登录状态）",
+            f"- requires_openai_auth：{_value(provider['requires_openai_auth'], '未设置')}（位于 [model_providers.{provider['id']}]；为 true 时保留官方账户状态）",
             f"- env_key：{_value(provider['env_key'], '未设置')}",
             f"- env_key 是否已注入：{_value(provider['env_key_is_set'], '不适用')}",
             f"- 显式 Bearer Token：{'已配置（值未读取）' if provider['direct_bearer_token_configured'] else '未配置'}",
@@ -670,6 +801,7 @@ def render_human(report: dict[str, Any], language: str) -> str:
                     f"- supports_search_tool：{_value(assessment['observed_supports_search_tool'], '不可用')}",
                     f"- 当前判断：{_symptom_assessment_label(assessment['assessment'], language)}",
                     "- 证据类型：模型目录静态字段",
+                    f"- namespace-tools 功能状态：{assessment.get('namespace_tools_feature_state', '未检查')}",
                     "- 真实调用烟雾测试：诊断器未执行",
                     "- 证据边界：插件清单、设置页面和真实调用必须分开核对；这个字段本身不能证明唯一根因。",
                 ]

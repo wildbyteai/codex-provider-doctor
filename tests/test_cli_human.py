@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import sqlite3
@@ -85,6 +86,7 @@ class HumanReportTests(unittest.TestCase):
                 "--system-config",
                 str(root / "missing-system.toml"),
                 "--no-command-checks",
+                "--details",
             )
 
             self.assertEqual(result.returncode, 2, result.stderr)
@@ -122,13 +124,14 @@ class HumanReportTests(unittest.TestCase):
                 "--no-command-checks",
                 "--acknowledge",
                 "provider.auth.openai_with_direct_token",
+                "--details",
             )
 
             self.assertEqual(result.returncode, 1, result.stderr)
             self.assertNotIn(secret, result.stdout)
             self.assertIn("Provider 请求认证", result.stdout)
             self.assertIn(
-                "requires_openai_auth：true（只描述 Provider 请求认证，不代表官方登录状态）",
+                "requires_openai_auth：true（位于 [model_providers.custom]；为 true 时保留官方账户状态）",
                 result.stdout,
             )
             self.assertIn("显式 Bearer Token：已配置（值未读取）", result.stdout)
@@ -149,6 +152,7 @@ class HumanReportTests(unittest.TestCase):
             "--no-command-checks",
             "--lang",
             "en",
+            "--details",
             extra_env={"DEEPSEEK_API_KEY": "test-only-placeholder"},
         )
 
@@ -215,6 +219,7 @@ class HumanReportTests(unittest.TestCase):
                 "--compat-rule",
                 "deepseek-direct-tools-2026-08-03",
                 "--no-command-checks",
+                "--details",
             )
 
             self.assertEqual(result.returncode, 1, result.stderr)
@@ -228,7 +233,7 @@ class HumanReportTests(unittest.TestCase):
             self.assertNotIn("tool_mode：code_mode_only → direct（建议修改）", result.stdout)
             self.assertIn("不是所有第三方模型的默认值", result.stdout)
 
-    def test_chrome_symptom_report_puts_false_search_support_before_cli_inventory_gap(self) -> None:
+    def test_chrome_symptom_report_keeps_runtime_dependent_exposure_ahead_of_cli_inventory_gap(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             codex_home = root / "codex-home"
@@ -242,7 +247,7 @@ class HumanReportTests(unittest.TestCase):
       "slug": "vendor-model-v1",
       "display_name": "Vendor Model V1",
       "tool_mode": "code_mode_only",
-      "supports_search_tool": false,
+      "supports_search_tool": true,
       "use_responses_lite": true
     }
   ]
@@ -273,23 +278,79 @@ class HumanReportTests(unittest.TestCase):
                 str(root / "missing-system.toml"),
                 "--symptom",
                 "chrome-plugin-unavailable",
+                "--details",
                 extra_env={
                     "PATH": f"{bin_directory}{os.pathsep}{os.environ.get('PATH', '')}",
                 },
             )
 
-            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn(
-                "首要诊断：Chrome 不可用的首要静态兼容性疑点：supports_search_tool = false",
+                "首要诊断：未发现足以判定当前故障的配置证据。",
                 result.stdout,
             )
             self.assertIn("Chrome / 插件兼容性排查", result.stdout)
             self.assertIn("证据类型：模型目录静态字段", result.stdout)
             self.assertIn("真实调用烟雾测试：诊断器未执行", result.stdout)
-            compatibility_index = result.stdout.index("Chrome 不可用的首要静态兼容性疑点")
+            compatibility_index = result.stdout.index("supports_search_tool = true 不能单独确定 Chrome 暴露路径")
             plugin_index = result.stdout.index("CLI 插件探针未能核验实际状态")
             self.assertLess(compatibility_index, plugin_index)
-            self.assertIn("不要仅因 CLI 插件清单失败而重装插件", result.stdout)
+            self.assertIn("不要因 CLI 插件清单失败而重装插件", result.stdout)
+
+    def test_chrome_report_puts_disabled_app_integration_before_runtime_dependent_exposure(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            codex_home = root / "codex-home"
+            codex_home.mkdir()
+            (codex_home / "catalog.json").write_text(
+                json.dumps(
+                    {
+                        "models": [
+                            {
+                                "slug": "vendor-model-v1",
+                                "display_name": "Vendor Model V1",
+                                "supports_search_tool": True,
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (codex_home / "config.toml").write_text(
+                "\n".join(
+                    [
+                        'model = "vendor-model-v1"',
+                        'model_provider = "vendor"',
+                        'model_catalog_json = "catalog.json"',
+                        "",
+                        "[model_providers.vendor]",
+                        'base_url = "https://api.example.invalid/v1"',
+                        'wire_api = "responses"',
+                        "",
+                        "[features]",
+                        "apps = false",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            result = run_doctor(
+                "--codex-home",
+                str(codex_home),
+                "--system-config",
+                str(root / "missing-system.toml"),
+                "--no-command-checks",
+                "--problem",
+                "chrome-unavailable",
+                "--details",
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertIn("首要诊断：App 与连接器能力被关闭", result.stdout)
+            feature_index = result.stdout.index("App 与连接器能力被关闭")
+            exposure_index = result.stdout.index("supports_search_tool = true 不能单独确定 Chrome 暴露路径")
+            self.assertLess(feature_index, exposure_index)
+            self.assertIn("恢复 Chrome 调用【插件能力被关闭】", result.stdout)
 
     def test_chinese_report_explicitly_keeps_official_model_outside_deepseek_rule(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -334,6 +395,7 @@ class HumanReportTests(unittest.TestCase):
                 "--compat-rule",
                 "deepseek-direct-tools-2026-08-03",
                 "--no-command-checks",
+                "--details",
             )
 
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -391,6 +453,7 @@ class HumanReportTests(unittest.TestCase):
                 "deepseek-direct-tools-2026-08-03",
                 "--acknowledge",
                 "provider.auth.openai_with_direct_token",
+                "--details",
                 extra_env={
                     "PATH": f"{bin_directory}{os.pathsep}{os.environ.get('PATH', '')}",
                 },
@@ -401,12 +464,12 @@ class HumanReportTests(unittest.TestCase):
             self.assertIn("首要诊断：第三方 Responses 模型与所选兼容案例存在需处理的字段差异", result.stdout)
             compatibility_index = result.stdout.index("第三方 Responses 模型与所选兼容案例存在需处理的字段差异")
             security_index = result.stdout.index("配置文件中存在直接 Bearer Token")
-            intent_index = result.stdout.index("认证组合已确认为有意")
+            intent_index = result.stdout.index("双认证配置已确认为有意")
             plugin_index = result.stdout.index("CLI 插件探针未能核验实际状态")
             self.assertLess(compatibility_index, security_index)
             self.assertLess(security_index, intent_index)
             self.assertLess(intent_index, plugin_index)
-            self.assertIn("【已确认意图】认证组合已确认为有意", result.stdout)
+            self.assertIn("【已确认意图】双认证配置已确认为有意", result.stdout)
             self.assertIn("【未核验】CLI 插件探针未能核验实际状态", result.stdout)
 
 

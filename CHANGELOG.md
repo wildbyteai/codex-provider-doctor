@@ -6,6 +6,10 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Five user-facing recovery guides selected with `--problem`: official sign-in, plugins/Skills, model names, history, and Chrome.
+- A concise default human report plus `--details` for configuration layers, field origins, and complete evidence.
+- Redacted local Skill counts and an additive JSON `solutions` section.
+- Independent official-login verification state in the sign-in guide, plus per-Provider affected counts and an explicit not-checked state in the history guide.
 - Installable Codex Skill metadata with implicit natural-language invocation.
 - A bundled Skill runner that uses the repository source without global package installation.
 - Skill entry-point tests and natural-language installation instructions.
@@ -18,12 +22,19 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Recognized `requires_openai_auth = true` under the active `[model_providers.<id>]` plus `experimental_bearer_token` as the confirmed dual-authentication design: official account state is retained while the explicit Provider token takes precedence for third-party requests.
+- Kept the dual-authentication guide off the built-in OpenAI Provider and required a controlled authentication-method migration when `env_key` or command authentication already exists.
+- Limited project Skill counting to trusted projects and marked skipped or unreadable coverage explicitly.
+- Scoped Direct/Deferred Chrome branch inference to an official-source date, namespace-tools state, and the locally detected Codex version, with runtime verification always required.
+- Reworked Chrome triage so `supports_search_tool` is not treated as a complete exposure switch: `false` forces the namespace planning branch to Direct, while `true` permits Deferred only when namespace tools are also enabled.
+- Kept `features.remote_plugin = false` as a possible remote-directory limitation rather than proof that an already installed Chrome tool is unavailable.
+- Put no-write history recovery first: switch back to the stored Provider, use an all-Provider view, or update Codex before considering database migration.
+- Avoided false recovery advice when `display_name` is already correct, and avoided reporting “no Provider mismatch” when the task database was not found.
 - Simplified the user-facing Skill installation prompt to require only the GitHub repository URL.
 - Ranked live invocation and Settings evidence above the CLI plugin inventory probe.
 - Kept failed, unparseable, missing, or disabled CLI-only plugin evidence at `info` / `unverified`; those findings no longer change exit code `0` by themselves.
 - Separated acknowledged authentication intent from the independent plaintext-token security warning.
 - Separated official ChatGPT/Codex sign-in state, third-party Provider request authentication, and plaintext-token risk in structured and human-readable output.
-- Prioritized `supports_search_tool = false` as a static Chrome compatibility suspect only when the user reports the Chrome symptom, while keeping causality unproven and `true` as a contrasting non-indicator.
 - Allowed a history Provider mismatch to be rendered as a user-confirmed root cause only after explicit confirmation; unconfirmed reports retain possibility language.
 - Prioritized actionable compatibility mismatches ahead of security reminders, acknowledged intent, and plugin CLI verification gaps in human-readable output.
 - Kept JSON finding order in diagnostic generation order; priority sorting now applies only to human-readable output.

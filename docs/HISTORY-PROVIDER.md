@@ -10,6 +10,12 @@ This is based on observed local database structure and behavior. It is not an of
 
 ## Recording a user-confirmed root cause
 
+Start the focused recovery guide with:
+
+```shell
+codex-provider-doctor --problem history-missing
+```
+
 The automatic probe must keep the conservative wording above unless the user explicitly confirms the causal conclusion for the current incident. After the read-only report finds unarchived rows bound to another Provider, the agent may rerun with:
 
 ```shell
@@ -24,6 +30,18 @@ This changes only the report semantics:
 - no task row, database, rollout file, or Provider setting is changed.
 
 Without that explicit confirmation, the doctor continues to say that Provider-filtered builds *may* hide the affected tasks. It must not promote static local evidence into a universal Codex behavior.
+
+If no compatible database is found, the guide reports that history binding was **not checked**. That is different from a successful aggregate probe that found zero mismatches. When affected rows span multiple old Providers, the guide reports each Provider's unarchived aggregate count instead of assigning the total to the largest group.
+
+## Recover without writing the database
+
+Always offer the lowest-risk recovery first:
+
+1. Temporarily switch back to the Provider stored on the missing tasks.
+2. Use an all-Provider task view when the installed Codex surface supports it.
+3. Update Codex and check the list again before considering database repair.
+
+These steps preserve the original Provider binding. Database migration is only for users who explicitly need the old tasks rebound to a new Provider.
 
 ## What the doctor checks
 

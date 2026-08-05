@@ -11,7 +11,7 @@ from tests.test_cli_runtime import install_fake_codex
 
 
 class CompatibilityRuleTests(unittest.TestCase):
-    def test_chrome_symptom_prioritizes_false_search_support_on_any_third_party_responses_model(self) -> None:
+    def test_chrome_symptom_treats_false_as_direct_tool_exposure_on_third_party_responses_model(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             codex_home = root / "codex-home"
@@ -58,16 +58,12 @@ class CompatibilityRuleTests(unittest.TestCase):
                 "--json",
             )
 
-            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertEqual(result.returncode, 0, result.stderr)
             report = json.loads(result.stdout)
-            finding = report["findings"][0]
             self.assertEqual(
                 {
                     "symptom_assessments": report["compatibility"]["symptom_assessments"],
-                    "finding": {
-                        key: finding[key]
-                        for key in ("code", "severity", "status", "category")
-                    },
+                    "finding_codes": [finding["code"] for finding in report["findings"]],
                     "web_search": report["effective"]["web_search"],
                 },
                 {
@@ -78,26 +74,24 @@ class CompatibilityRuleTests(unittest.TestCase):
                             "applicability_reason": None,
                             "evidence_source": "catalog.selected_model.supports_search_tool",
                             "observed_supports_search_tool": False,
-                            "assessment": "primary_static_compatibility_suspect",
+                            "assessment": "direct_namespace_branch_forced",
                             "causality": "not_proven",
                             "live_smoke_test": "not_run_by_doctor",
-                            "next_step": "compare_static_field_with_live_and_plugin_evidence",
+                            "next_step": "verify_plugin_visibility_and_live_invocation",
+                            "namespace_tools_feature_state": "not_checked",
+                            "exposure_inference": "direct_namespace_branch_forced_by_false",
+                            "semantics_source": "official_codex_source",
+                            "semantics_as_of": "2026-08-05",
+                            "detected_codex_version": None,
+                            "runtime_verification_required": True,
                         }
                     ],
-                    "finding": {
-                        "code": "compat.chrome.supports_search_tool_false",
-                        "severity": "warning",
-                        "status": "open",
-                        "category": "diagnostic",
-                    },
+                    "finding_codes": [],
                     "web_search": None,
                 },
             )
-            self.assertIn("首要静态兼容性疑点", finding["message"])
-            self.assertIn("不能证明它是唯一根因", finding["message"])
-            self.assertIn("不要修改顶层 web_search", finding["remedy"])
 
-    def test_chrome_symptom_does_not_blame_search_support_when_catalog_value_is_true(self) -> None:
+    def test_chrome_symptom_keeps_true_exposure_mode_runtime_dependent(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             codex_home = root / "codex-home"
@@ -157,12 +151,18 @@ class CompatibilityRuleTests(unittest.TestCase):
                 },
                 {
                     "observed": True,
-                    "assessment": "not_indicated_by_static_field",
+                    "assessment": "exposure_mode_runtime_dependent",
                     "causality": "not_proven",
-                    "next_step": "continue_plugin_and_live_checks",
-                    "finding_codes": [],
+                    "next_step": "verify_namespace_tools_and_live_invocation",
+                    "finding_codes": ["compat.chrome.exposure_mode_unverified"],
                 },
             )
+            finding = report["findings"][0]
+            self.assertEqual(finding["severity"], "info")
+            self.assertEqual(finding["status"], "unverified")
+            self.assertIn("namespace-tools 功能同时启用", finding["message"])
+            self.assertIn("不能仅凭该字段判定根因", finding["message"])
+            self.assertIn("不要修改顶层 web_search", finding["remedy"])
 
     def test_deepseek_rule_is_not_applicable_to_builtin_openai_provider(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

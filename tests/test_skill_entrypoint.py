@@ -58,6 +58,13 @@ class SkillEntrypointTests(unittest.TestCase):
         acknowledgement = "--acknowledge provider.auth.openai_with_direct_token"
         chrome_symptom = "--symptom chrome-plugin-unavailable"
         confirmed_history_cause = "--confirm-cause history.provider_mismatch"
+        problem_flags = (
+            "--problem keep-official-login",
+            "--problem plugins-or-skills-unavailable",
+            "--problem model-name-incorrect",
+            "--problem history-missing",
+            "--problem chrome-unavailable",
+        )
         self.assertIn(acknowledgement, skill_text)
         self.assertIn(acknowledgement, readme_zh)
         self.assertIn(acknowledgement, readme_en)
@@ -66,12 +73,27 @@ class SkillEntrypointTests(unittest.TestCase):
             self.assertIn(chrome_symptom, text)
         for text in (skill_text, readme_zh, readme_en, history, prompt):
             self.assertIn(confirmed_history_cause, text)
+        for problem_flag in problem_flags:
+            for text in (skill_text, readme_zh, readme_en, prompt):
+                self.assertIn(problem_flag, text)
         self.assertIn("Catalog model count", readme_en)
         self.assertIn("模型目录条目总数", readme_zh)
+        self.assertIn("--details", skill_text)
+        self.assertIn("--details", readme_zh)
+        self.assertIn("--details", readme_en)
+        self.assertIn("[model_providers.<id>]", readme_en)
+        self.assertIn("requires_openai_auth = true", readme_en)
+        self.assertIn("Do not add it to the built-in `openai` Provider", readme_en)
+        self.assertIn("do not stack", readme_en)
+        self.assertIn("project Skills only when the project is trusted", skill_text)
+        self.assertIn("runtime_verification_required: true", compatibility)
+        self.assertIn("保留官方登录态", readme_zh)
         self.assertIn("official model", compatibility)
         self.assertIn("review_if_symptomatic", compatibility)
-        self.assertIn("primary static compatibility suspect", compatibility)
-        self.assertIn("not a unique root cause", compatibility)
+        self.assertIn("Deferred is only eligible", compatibility)
+        self.assertIn("namespace tools", compatibility)
+        self.assertIn("Direct", compatibility)
+        self.assertIn("cannot determine Chrome exposure or a root cause", compatibility)
         self.assertIn("provider_counts", history)
         self.assertIn("database plus its WAL/SHM sidecars", history)
 

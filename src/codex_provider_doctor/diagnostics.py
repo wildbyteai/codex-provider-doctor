@@ -172,7 +172,7 @@ def provider_report(
                 "warning",
                 "requires_openai_auth 放错了位置",
                 "顶层 requires_openai_auth 不会配置活动 Provider；该字段必须位于 [model_providers.<id>] 内。",
-                "只有 Provider 确实使用 OpenAI 认证时才把它移入活动 Provider 块，否则直接删除。ChatGPT 登录态与第三方 Provider 认证应分开检查。",
+                "如果目标是让自定义第三方 Provider 保留官方登录态并使用显式 Token，把 requires_openai_auth = true 放到活动 [model_providers.<id>] 块内；不要放在 TOML 顶层，也不要直接叠加到已有 env_key/auth 上。",
             )
         )
     provider_id = config.get("model_provider", "openai")
@@ -258,28 +258,29 @@ def provider_report(
         intent_code = "provider.auth.openai_with_direct_token"
         intent_acknowledged = intent_code in acknowledgements
         authentication_intent = {
-            "combination": "openai_auth_with_explicit_bearer_token",
+            "combination": "official_login_retained_with_explicit_provider_token",
             "status": "acknowledged" if intent_acknowledged else "unverified",
             "intentional": True if intent_acknowledged else None,
             "acknowledgement_code": intent_code,
-            "official_login_state": "separate_auth_report",
-            "provider_request_authentication": "explicit_bearer_token_configured",
+            "official_login_state": "retained_by_requires_openai_auth",
+            "provider_request_authentication": "explicit_bearer_token_precedes_official_auth",
+            "requires_openai_auth_config_path": f"model_providers.{provider_id}.requires_openai_auth",
             "plaintext_token_risk": "independent_warning",
         }
         findings.append(
             finding(
                 intent_code,
                 "info",
-                "认证组合已确认为有意" if intent_acknowledged else "认证组合意图尚未确认",
+                "双认证配置已确认为有意" if intent_acknowledged else "双认证配置意图尚未确认",
                 (
-                    "用户已明确确认设计意图：官方 ChatGPT/Codex 登录状态独立保留，第三方 Provider 请求使用显式 Token，以继续使用官方插件能力；插件是否真实可用仍需独立验证。requires_openai_auth 仍是 Provider 请求认证字段，不等于保留官方登录状态的开关；这组配置依赖具体 Codex 版本和实现，不是通用安全默认。"
+                    f"用户已明确确认设计意图：[model_providers.{provider_id}] 下的 requires_openai_auth = true 保留官方 ChatGPT/Codex 账户状态，第三方 Provider 请求优先使用显式 Bearer Token，以继续使用官方插件能力；插件是否真实可用仍需独立验证。"
                     if intent_acknowledged
-                    else "当前只能确认配置中同时存在 OpenAI 认证字段和显式 Provider Token，不能推断用户意图。官方登录状态必须独立检查；requires_openai_auth 不是保留官方登录状态的通用开关。"
+                    else f"当前配置在 [model_providers.{provider_id}] 下同时设置 requires_openai_auth = true 和显式 Provider Token；这会保留官方账户状态，并让显式 Token 优先用于第三方请求，但诊断器不能在没有用户确认时推断这是有意设计。"
                 ),
                 (
-                    "按已确认意图保留当前行为，并分别验证官方登录、第三方模型请求、Skill 和插件；配置文件明文 Token 风险继续作为独立警告处理，不要把已确认意图列为当前故障根因。"
+                    "保持这组双认证配置，并分别验证官方登录、第三方模型请求、Skill 和插件；配置文件明文 Token 风险继续作为独立警告处理。"
                     if intent_acknowledged
-                    else "只有用户明确确认该设计意图后，才使用 --acknowledge provider.auth.openai_with_direct_token 记录确认；在此之前不要自动删除任一字段。"
+                    else "用户明确要保留官方登录态时，使用 --problem keep-official-login 或 --acknowledge provider.auth.openai_with_direct_token 记录确认；在此之前不要自动删除任一字段。"
                 ),
                 status="acknowledged" if intent_acknowledged else "unverified",
                 category="intent",
@@ -367,15 +368,19 @@ def compatibility_report(
         if not applicable:
             assessment = "not_applicable"
             next_step = "continue_provider_specific_checks"
+            exposure_inference = "not_applicable"
         elif observed is False:
-            assessment = "primary_static_compatibility_suspect"
-            next_step = "compare_static_field_with_live_and_plugin_evidence"
+            assessment = "direct_namespace_branch_forced"
+            next_step = "verify_plugin_visibility_and_live_invocation"
+            exposure_inference = "direct_namespace_branch_forced_by_false"
         elif observed is True:
-            assessment = "not_indicated_by_static_field"
-            next_step = "continue_plugin_and_live_checks"
+            assessment = "exposure_mode_runtime_dependent"
+            next_step = "verify_namespace_tools_and_live_invocation"
+            exposure_inference = "deferred_only_if_namespace_tools_enabled"
         else:
             assessment = "field_unavailable"
             next_step = "verify_catalog_field_and_runtime"
+            exposure_inference = "undetermined"
         symptom_assessments.append(
             {
                 "id": symptom_id,
@@ -387,19 +392,26 @@ def compatibility_report(
                 "causality": "not_proven",
                 "live_smoke_test": "not_run_by_doctor",
                 "next_step": next_step,
+                "namespace_tools_feature_state": "not_checked",
+                "exposure_inference": exposure_inference,
+                "semantics_source": "official_codex_source",
+                "semantics_as_of": "2026-08-05",
+                "detected_codex_version": codex_version,
+                "runtime_verification_required": True,
             }
         )
-        if applicable and observed is False:
+        if applicable and observed is True:
             findings.append(
                 finding(
-                    "compat.chrome.supports_search_tool_false",
-                    "warning",
-                    "Chrome 不可用的首要静态兼容性疑点：supports_search_tool = false",
-                    "用户报告 Chrome 插件不可用，且活动第三方 Responses 模型目录条目的 supports_search_tool 为 false；这是当前首要静态兼容性疑点，应放在排查前部。这个字段可能导致或伴随工具能力不兼容，但不能证明它是唯一根因。",
-                    "先分别核对真实调用烟雾测试、Settings/Plugins 页面和 CLI 清单证据；不要修改顶层 web_search，也不要仅因 CLI 插件清单失败而重装插件。模型目录如需试改，先备份并逐项测试 Chrome、Web Search 和其他插件。",
+                    "compat.chrome.exposure_mode_unverified",
+                    "info",
+                    "supports_search_tool = true 不能单独确定 Chrome 暴露路径",
+                    "用户报告 Chrome 不可用，且活动第三方 Responses 模型设置 supports_search_tool = true。按 2026-08-05 官方 Codex 源码，只有 namespace-tools 功能同时启用时，这个条件才允许 Deferred 暴露；否则仍走 Direct 分支。工具自身声明和实际任务工具表也必须单独核验，因此不能仅凭该字段判定根因。",
+                    "先在本机已安装版本的新任务中核对 namespace-tools 相关能力、tool_search 和 Chrome 工具是否真实出现；只有运行时证据确认 Deferred 发现链路不兼容后，才考虑备份模型目录做受控实验。不要修改顶层 web_search，也不要因 CLI 插件清单失败而重装插件。",
+                    status="unverified",
+                    category="verification",
                 )
             )
-
     rules: list[dict[str, Any]] = []
     for rule_id in rule_ids:
         if rule_id != "deepseek-direct-tools-2026-08-03":
@@ -857,6 +869,70 @@ def plugins_report(
             )
         )
     return report
+
+
+def _count_skill_manifests(root: Path) -> tuple[int | None, str]:
+    if not root.is_dir():
+        return 0, "not_found"
+    try:
+        return sum(1 for path in root.rglob("SKILL.md") if path.is_file()), "ok"
+    except OSError:
+        return None, "failed"
+
+
+def skills_report(
+    codex_home: Path,
+    project_root: str | None,
+    project_trust: str,
+) -> dict[str, Any]:
+    user_root = codex_home / "skills"
+    project_skill_root = (
+        Path(project_root) / ".agents" / "skills" if project_root else None
+    )
+    user_count, user_status = _count_skill_manifests(user_root)
+    user_source = {
+        "scope": "user",
+        "path": "$CODEX_HOME/skills",
+        "exists": user_root.is_dir(),
+        "count": user_count,
+        "status": user_status,
+    }
+
+    project_exists = project_skill_root.is_dir() if project_skill_root else False
+    if project_skill_root is None:
+        project_count: int | None = 0
+        project_status = "not_applicable"
+    elif not project_exists:
+        project_count = 0
+        project_status = "not_found"
+    elif project_trust != "trusted":
+        project_count = None
+        project_status = f"skipped_{project_trust.replace('-', '_')}"
+    else:
+        project_count, project_status = _count_skill_manifests(project_skill_root)
+    project_source = {
+        "scope": "project",
+        "path": "$PROJECT_ROOT/.agents/skills",
+        "exists": project_exists,
+        "count": project_count,
+        "status": project_status,
+        "trust_level": project_trust,
+    }
+    sources = [user_source, project_source]
+    coverage = (
+        "complete"
+        if all(source["status"] in {"ok", "not_found", "not_applicable"} for source in sources)
+        else "partial"
+    )
+    probe = "partial" if any(source["status"] == "failed" for source in sources) else "ok"
+    return {
+        "probe": probe,
+        "coverage": coverage,
+        "total": sum(
+            source["count"] for source in sources if isinstance(source["count"], int)
+        ),
+        "sources": sources,
+    }
 
 
 def _history_database_candidates(codex_home: Path) -> list[Path]:

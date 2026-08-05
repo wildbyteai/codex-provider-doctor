@@ -7,16 +7,20 @@ Compatibility advice must be tied to an observed version and interface combinati
 When the user explicitly reports that Chrome is unavailable under a third-party model, run:
 
 ```shell
-codex-provider-doctor --symptom chrome-plugin-unavailable
+codex-provider-doctor --problem chrome-unavailable
 ```
 
-This check applies to any selected third-party `responses` provider; it is not limited to DeepSeek or to a dated compatibility rule. It reads the selected catalog entry's actual `supports_search_tool` value:
+`--symptom chrome-plugin-unavailable` remains a lower-level compatibility trigger for existing integrations; it does not replace the user-facing recovery guide.
 
-- `false`: report a **primary static compatibility suspect**. The field may cause or accompany tool-capability incompatibility, but it is **not a unique root cause**, does not prove causality, and does not automatically imply a change to `true`.
-- `true`: this specific static field does not point to the reported symptom. Continue with Settings or Plugins visibility, connector authorization, the CLI inventory, and a live smoke test.
+This check applies to any selected third-party `responses` provider; it is not limited to DeepSeek or to a dated compatibility rule. In the [Codex tool-planning source snapshot dated 2026-08-05](https://github.com/openai/codex/blob/main/codex-rs/core/src/tools/spec_plan.rs), `supports_search_tool` participates in a condition that also checks whether namespace tools are enabled. The doctor reads the selected catalog entry's actual value without treating it as the complete exposure switch:
+
+- `false`: the namespace-tool planning condition cannot take the Deferred branch, so the branch falls back to **Direct**. This does not prove that Chrome itself declares Direct exposure or appears in the live task tool list. The value is not fault evidence by itself.
+- `true`: **Deferred is only eligible** when namespace tools are also enabled; otherwise Direct remains possible. The field alone cannot determine Chrome exposure or a root cause.
 - missing or non-Boolean: report that the static field is unavailable and keep the runtime cause unverified.
 
 The JSON report records this under `compatibility.symptom_assessments`. It deliberately provides no `suggested_changes`: the doctor distinguishes static catalog evidence, plugin-inventory evidence, and a real invocation. A live smoke test remains stronger than static configuration. Never infer or change top-level `web_search`, and never recommend reinstalling a plugin merely because `codex plugin list --json` failed.
+
+Each assessment records the official-source date, the locally detected Codex version when available, the namespace-tools state as not checked, and `runtime_verification_required: true`. If the installed version was not detected or differs from the cited source snapshot, the branch inference remains dated static evidence rather than a claim about the user's live runtime.
 
 This general symptom triage is independent of the dated rule below. A dated case can describe an observed field combination without proving that the same values fix the current Chrome symptom.
 

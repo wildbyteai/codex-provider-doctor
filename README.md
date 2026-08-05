@@ -2,9 +2,17 @@
 
 [简体中文](README.zh-CN.md)
 
-Codex Provider Doctor is a read-only companion to the built-in `codex doctor` command. It focuses on third-party model-provider setups where Codex can still chat, but skills, model names, Chrome, plugins, or older tasks behave differently.
+Codex Provider Doctor is a read-only recovery guide for the five problems users actually hit after switching Codex to a third-party model Provider: keeping the official sign-in, restoring plugins and Skills, fixing model names, recovering older tasks, and restoring Chrome calls.
 
 Status: alpha. The tool reports findings and suggested diffs. It does not edit Codex configuration or task databases.
+
+## Fix the five problems first
+
+1. **Keep the official sign-in**: only for a custom third-party Provider that intentionally uses a direct token, put `requires_openai_auth = true` and `experimental_bearer_token` in that Provider's `[model_providers.<id>]` table. If `env_key/auth` already exists, migrate instead of stacking methods. Separately confirm that `codex login status` reports ChatGPT sign-in. Plaintext-token risk remains an independent warning.
+2. **Restore plugins, official plugins, or Skills**: restart Codex completely and open a new task, then separate local Skill installation, Plugins/Settings enablement and authorization, and actual tool exposure. A failed CLI inventory is not a reason to reinstall.
+3. **Fix the model name**: identify the effective `model_catalog_json`, make top-level `model` match exactly one `models[].slug`, and inspect that entry's `display_name`. When those fields are already correct, do not edit them again; restart and verify in a new task.
+4. **Recover older tasks**: aggregate the Providers stored on affected tasks. First switch back to those Providers, use an all-provider view when available, or update Codex. Consider binding migration only after quitting Codex, backing up the database plus WAL/SHM, showing the exact field diff, and obtaining another confirmation.
+5. **Restore Chrome calls**: inspect the selected model's `supports_search_tool` early, but do not treat it as a complete exposure switch. In the 2026-08-05 official source, `false` forces the namespace-tool planning branch to Direct; `true` permits Deferred only when namespace tools are also enabled. Actual Chrome declarations and the live task tool list still require verification. Then check Plugins/Settings, official sign-in, the Chrome profile, connector authorization, and a live invocation.
 
 ## Use as a Codex skill (recommended)
 
@@ -17,7 +25,7 @@ Install this Skill for me: https://github.com/wildbyteai/codex-provider-doctor
 Start a new task after installation; restart Codex if the skill list has not refreshed. Then ask:
 
 ```text
-Check why skills, model names, Chrome, plugins, or older tasks changed after I configured a third-party API in Codex.
+Check how to keep my official sign-in and fix plugins, Skills, model names, older tasks, and Chrome after I switched Codex to a third-party API.
 ```
 
 Codex handles the repository path, Skill name, and installer arguments. If the current task does not match the Skill, explicitly ask it to use `$codex-provider-doctor`. Codex then runs the bundled read-only checker and explains the result. The skill and CLI share the same source, so the skill does not globally install the package or create a virtual environment. Python 3.11 or later is currently required.
@@ -30,20 +38,25 @@ Codex handles the repository path, Skill name, and installer arguments. If the c
 - Relative catalog paths, resolved from the config file that declared the winning value.
 - The active `model` and its exact `models[].slug` match.
 - Model display metadata, `tool_mode`, `supports_search_tool`, `use_responses_lite`, context window, and compact limits.
-- Symptom-aware Chrome compatibility triage for any selected third-party Responses model, including a safe `supports_search_tool = false` versus `true` comparison.
+- A five-problem recovery guide with exact no-write actions before the technical evidence.
+- Counts of locally discovered user and trusted-project Skills without reporting their names. Untrusted-project Skills are not scanned and make coverage explicitly partial.
+- Symptom-aware Chrome compatibility triage for any selected third-party Responses model, including the runtime conditions around Direct versus Deferred namespace-tool exposure.
 - Provider authentication conflicts involving `requires_openai_auth`, `env_key`, command authentication, or a direct bearer token, with acknowledged intent kept separate from security risk.
 - Official Codex login state plus a plugin count and exact Chrome status when the redacted, read-only CLI probe succeeds; otherwise the inventory remains explicitly unverified. Other plugin names are not reported.
 - Chrome installation and enablement signals, followed by a manual acceptance checklist.
 - Read-only aggregate task counts grouped by `model_provider`, including total, unarchived, and archived rows.
 
-## The four common symptoms
+## The five problems this solves
 
-1. Skills no longer appear or cannot be invoked.
-2. The model picker shows an unclear slug instead of a useful display name.
-3. The Chrome plugin is installed but unavailable to a new Codex task.
-4. Older tasks appear to be missing after switching providers.
+Select one problem for a focused report, or run without `--problem` to see all five:
 
-The first three usually require inspecting both the effective `config.toml` and the model catalog JSON it references. The fourth can be a separate local-index issue: task files may still exist while their database rows remain bound to another provider.
+1. Keep the official sign-in: `--problem keep-official-login`
+2. Restore plugins and Skills: `--problem plugins-or-skills-unavailable`
+3. Fix the model name: `--problem model-name-incorrect`
+4. Recover older tasks: `--problem history-missing`
+5. Restore Chrome calls: `--problem chrome-unavailable`
+
+The default human report is deliberately short and leads with recovery steps. Add `--details` to expand configuration layers, field origins, catalog metadata, history aggregates, and all findings.
 
 ## How plugin evidence is interpreted
 
@@ -56,7 +69,7 @@ The CLI plugin probe is one evidence source, not the final authority on runtime 
 
 If the CLI command fails or returns an unsupported format, the plugin inventory is `unverified`. The finding is informational and does not change exit code `0` by itself. A successful CLI inventory that does not confirm Chrome is also lower-priority evidence, not proof of a runtime failure. Do not reinstall plugins or clear caches when the UI or a live invocation already works; consider repair only when those stronger checks also fail.
 
-When the user explicitly reports that Chrome is unavailable under a third-party model, add `--symptom chrome-plugin-unavailable`. For a third-party Responses provider, `supports_search_tool = false` becomes the primary static compatibility suspect because it may cause or accompany tool-capability incompatibility; it is not proof of a unique root cause and does not automatically mean the field should be changed. A `true` value rules down this specific static suspect and sends the investigation back to Settings, authorization, plugin inventory, and live invocation. The tool never infers or edits top-level `web_search` from this check.
+When the user explicitly reports that Chrome is unavailable, prefer `--problem chrome-unavailable`; the lower-level `--symptom chrome-plugin-unavailable` flag remains available for existing integrations. In the official source snapshot dated 2026-08-05, `supports_search_tool = false` forces the namespace-tool planning branch to Direct, but does not prove that Chrome itself is directly exposed or present. `true` permits Deferred only when namespace tools are also enabled; otherwise Direct remains possible. The doctor therefore records the field near the front of triage but keeps the actual exposure path, tool declarations, Settings state, and live invocation unverified. It never infers or edits top-level `web_search` from this check.
 
 ## Safety model
 
@@ -92,6 +105,22 @@ Basic read-only diagnosis:
 codex-provider-doctor
 ```
 
+The command above shows all five recovery guides. For one focused problem:
+
+```shell
+codex-provider-doctor --problem keep-official-login
+codex-provider-doctor --problem plugins-or-skills-unavailable
+codex-provider-doctor --problem model-name-incorrect
+codex-provider-doctor --problem history-missing
+codex-provider-doctor --problem chrome-unavailable
+```
+
+Expand the technical evidence only when needed:
+
+```shell
+codex-provider-doctor --details
+```
+
 Machine-readable report:
 
 ```shell
@@ -111,7 +140,7 @@ codex-provider-doctor \
   --acknowledge provider.auth.openai_with_direct_token
 ```
 
-When Chrome is explicitly reported unavailable under a third-party model, add the symptom without changing any field:
+The lower-level Chrome symptom flag remains available for existing integrations:
 
 ```shell
 codex-provider-doctor \
@@ -152,16 +181,29 @@ The report evaluates all three fields, but it does not treat them identically:
 
 `supports_search_tool` is model-catalog metadata and is not the same setting as top-level `web_search`.
 
-## Authentication is three separate questions
+## Keep the official sign-in while using a third-party token
 
-`requires_openai_auth = true` means that the selected provider uses OpenAI authentication. Codex then ignores that provider's `env_key`. It is not a general switch for preserving an official ChatGPT login while another provider uses its own API key.
+For the confirmed dual-authentication design, `requires_openai_auth` belongs inside the active Provider block, not at the TOML top level:
 
-Some observed setups retain official sign-in as a separate state while third-party Provider requests use `experimental_bearer_token`, with `requires_openai_auth = true` kept as a version-sensitive compatibility field. The user's intent can be to retain access to official plugin capabilities, but actual plugin availability still needs separate runtime verification. The doctor reports this combination as `info` / `unverified` until the user confirms the intent; it does not describe `requires_openai_auth` itself as the login-retention mechanism. After explicit confirmation, pass `--acknowledge provider.auth.openai_with_direct_token`; the finding becomes acknowledged and intentional instead of a fault hypothesis. The independent plaintext-token warning remains.
+```toml
+model = "vendor-model"
+model_provider = "vendor"
+
+[model_providers.vendor]
+base_url = "https://provider.example/v1"
+wire_api = "responses"
+requires_openai_auth = true
+experimental_bearer_token = "<third-party-token>"
+```
+
+This pattern is for a custom third-party Provider. Do not add it to the built-in `openai` Provider. If the active third-party Provider already uses `env_key` or an `[model_providers.<id>.auth]` command, do not stack the direct-token fields on top: back up the configuration, show one field-level migration diff, remove the old request-authentication method, and add the confirmed dual-authentication fields in the same controlled change.
+
+As of 2026-08-05, the [current Codex provider-authentication path](https://github.com/openai/codex/blob/main/codex-rs/model-provider/src/provider.rs) retains the official ChatGPT/Codex account state with `requires_openai_auth = true`, while the explicit Provider bearer token takes precedence for third-party requests. `--problem keep-official-login` records this intent automatically. The legacy `--acknowledge provider.auth.openai_with_direct_token` form remains supported. Neither form hides the independent plaintext-token warning.
 
 Diagnose these independently:
 
 1. Official Codex sign-in: `codex login status`.
-2. Third-party provider request authentication: the active `[model_providers.<id>]` block.
+2. Third-party provider request authentication: the active `[model_providers.<id>]` block, where `requires_openai_auth = true` must be placed for this dual-auth design.
 3. Plaintext-token risk: whether `experimental_bearer_token` is stored directly in configuration, regardless of acknowledged intent.
 
 Plugin, connector, MCP, and Chrome installation or authorization are a separate runtime capability check after those three authentication questions.
@@ -193,7 +235,8 @@ Then use this project for provider-specific catalog resolution, compatibility me
 - Plugin reports add `inventory_status`; command failure, invalid JSON, or an unsupported JSON shape remains `probe: "failed"` with an honestly `unverified` inventory.
 - Catalog reports add `model_count`.
 - History reports add `provider_counts`.
-- Compatibility reports add `symptom_assessments` for general Chrome triage plus `field_assessments` and `observed_differences` for selected dated rules. `suggested_changes` excludes symptom-only observations.
+- Reports add `skills` counts and a `solutions` section for the selected five-problem recovery guides; the sign-in guide carries independent official-login verification state, and the history guide carries aggregate counts for each affected old Provider.
+- Compatibility reports add `symptom_assessments` for runtime-dependent Direct/Deferred Chrome triage plus `field_assessments` and `observed_differences` for selected dated rules. `suggested_changes` excludes symptom-only observations.
 - JSON findings keep diagnostic generation order for compatibility. Priority sorting is applied only when rendering the human-readable report.
 
 Exit codes still depend only on errors and warnings: `0` for neither, `1` for warnings, `2` for errors, and `3` when the doctor cannot finish safely.

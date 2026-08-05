@@ -38,6 +38,28 @@
     "direct_bearer_token_configured": false,
     "authentication_intent": null
   },
+  "skills": {
+    "probe": "ok",
+    "coverage": "complete",
+    "total": 2,
+    "sources": [
+      {
+        "scope": "user",
+        "path": "$CODEX_HOME/skills",
+        "exists": true,
+        "count": 2,
+        "status": "ok"
+      },
+      {
+        "scope": "project",
+        "path": "$PROJECT_ROOT/.agents/skills",
+        "exists": false,
+        "count": 0,
+        "status": "not_found",
+        "trust_level": "trusted"
+      }
+    ]
+  },
   "history": {
     "probe": "ok",
     "database_path": "$CODEX_HOME/session-index.local.db",
@@ -59,6 +81,31 @@
         "threads_total": 2,
         "threads_unarchived": 2,
         "threads_archived": 0
+      }
+    ]
+  },
+  "solutions": {
+    "requested": [
+      "history-missing"
+    ],
+    "items": [
+      {
+        "id": "history-missing",
+        "title": "Recover task history",
+        "status": "binding_mismatch_detected",
+        "diagnosis": "Found 2 unarchived tasks bound to openai while the active provider is thirdparty; provider-filtered builds can hide them.",
+        "affected_unarchived_threads": 2,
+        "affected_provider_counts": [
+          {
+            "provider": "openai",
+            "threads_unarchived": 2
+          }
+        ],
+        "actions": [
+          "Immediate no-write recovery: switch back to openai, or use an all-provider view in a version that supports it.",
+          "Update Codex and check the task list again before editing any database.",
+          "Only if binding migration is necessary: quit Codex, back up the database plus WAL/SHM, show the exact row count and field diff, and obtain another explicit confirmation."
+        ]
       }
     ]
   },

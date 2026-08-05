@@ -7,57 +7,53 @@ description: Diagnose Codex third-party model Provider setups with a bundled rea
 
 Run the bundled doctor yourself. Do not ask the user to copy or execute terminal commands.
 
+## Select the user's problem
+
+Map the request to one or more public recovery guides:
+
+- Keep the official ChatGPT/Codex sign-in while a third-party provider uses a direct token: `--problem keep-official-login`
+- Plugins, official plugins, or Skills disappeared after switching: `--problem plugins-or-skills-unavailable`
+- The model picker shows a slug or the wrong name: `--problem model-name-incorrect`
+- Older tasks disappeared after switching Provider: `--problem history-missing`
+- Chrome cannot be called under the third-party model: `--problem chrome-unavailable`
+
+When no single problem is clear, omit `--problem`; the human report shows all five guides. Add `--details` only when the user asks for configuration layers, field origins, or full evidence.
+
 ## Run the diagnosis
 
 1. Keep the user's current project as the working directory so trusted project configuration is evaluated correctly.
-2. Resolve the skill directory from this `SKILL.md`, then run its bundled entry point with Python 3.11 or later:
+2. Resolve the skill directory from this file and run:
 
    ```text
-   python3 <skill-directory>/scripts/run_skill.py --json
+   python3 <skill-directory>/scripts/run_skill.py --json --problem <problem-id>
    ```
 
-   Use `python` instead of `python3` only after confirming that it is Python 3.11 or later.
-3. Pass `--profile <name>` only when the active Codex Profile is known from the current task or the user. If it is unknown, run the baseline diagnosis and clearly mark the Profile as unconfirmed; do not guess.
-4. Add `--symptom chrome-plugin-unavailable` when the user explicitly reports that Chrome is unavailable while a third-party model is selected. This enables general third-party Responses-provider triage of the selected catalog entry's actual `supports_search_tool` value; it does not change any field.
-5. Add `--compat-rule deepseek-direct-tools-2026-08-03` only when the user explicitly asks about that dated DeepSeek compatibility case or asks to compare the observed case values. The rule applies only when the selected catalog model is a DeepSeek model on a third-party Responses provider. It does not apply to an official model merely because that model appears in the same custom catalog.
-6. Add `--acknowledge provider.auth.openai_with_direct_token` only after the user explicitly confirms that `requires_openai_auth = true` plus `experimental_bearer_token` is intentional. This records intent; it does not suppress the separate plaintext-token warning.
-7. Add `--confirm-cause history.provider_mismatch` only after the read-only report finds a history Provider mismatch and the user explicitly confirms that this mismatch caused the current history-visibility problem. This upgrades the incident wording from a possibility to a user-confirmed root cause; it never repairs the database.
-8. Preserve the program's exit code interpretation:
-   - `0`: no detected errors or warnings. Information, unverified CLI evidence, or acknowledged intent does not change exit code 0 by itself.
-   - `1`: warnings need review.
-   - `2`: configuration errors were detected.
-   - `3`: the doctor could not finish safely.
+   Python 3.11 or later is required. Do not globally install the package or create a virtual environment.
+3. Pass `--profile <name>` only when the active Codex Profile is known. Never guess a Profile.
+4. `--problem keep-official-login` is an explicit confirmation of the intended dual-authentication design for a custom third-party Provider. The correct location is `[model_providers.<id>]`: keep `requires_openai_auth = true` there while the third-party request uses `experimental_bearer_token`. This retains the official account state; the separate plaintext-token warning must remain. Do not apply this pattern to the built-in `openai` Provider, and do not stack it on an existing `env_key` or command-auth method—report a controlled authentication-method migration instead. The legacy explicit form `--acknowledge provider.auth.openai_with_direct_token` is also supported.
+5. `--problem chrome-unavailable` also enables the legacy `--symptom chrome-plugin-unavailable` assessment. In the official Codex source snapshot dated 2026-08-05, `supports_search_tool = false` forces the namespace-tool planning branch to Direct, but does not prove Chrome exposure. `true` permits Deferred only when namespace tools are also enabled; otherwise Direct remains possible. Record the detected local version, leave the namespace-tools state unverified unless stronger evidence exists, and require a live task check. Never infer a top-level `web_search` change.
+6. Add `--confirm-cause history.provider_mismatch` only after the user confirms that the detected Provider binding mismatch caused the current history visibility problem. This changes report wording only; it never repairs the database.
+7. Add `--compat-rule deepseek-direct-tools-2026-08-03` only for that dated DeepSeek case. Keep `tool_mode = direct` as `review_if_symptomatic`.
 
-The entry point loads the source bundled with this skill. Do not install the package globally or create a virtual environment. If the source is unavailable, report that the Skill installation is incomplete and reinstall the complete repository Skill.
+Exit codes remain `0` for no errors or warnings, `1` for warnings, `2` for errors, and `3` when the doctor cannot finish safely.
 
 ## Explain the result
 
-Reply in the user's language; default to Chinese. Lead with the error count and warning count. If a finding is marked as a confirmed cause, state it as the user-confirmed root cause; otherwise state only the strongest diagnosis supported by the available evidence. Then cover only the useful evidence:
+Lead with the requested problem, its status, and the exact recovery steps. Do not start with configuration layers.
 
-1. Effective configuration layers and the source of each important field.
-2. The actual `model_catalog_json` path, including how a relative path was resolved.
-3. The model-catalog entry count plus the uniquely matched model and its display and compatibility fields.
-4. Provider authentication, kept separate from official ChatGPT/Codex login state.
-5. Skill, plugin, and Chrome findings plus any remaining manual checks.
-6. Aggregate history Provider counts, including per-`model_provider` total, unarchived, and archived counts, without task titles or message content.
-7. Suggested field-level changes that were not applied.
+For the five guides:
 
-Do not paste the entire JSON report unless the user requests it. Translate findings into plain language suitable for a non-technical user.
+1. Explain the correct dual-authentication block and keep plaintext-token risk separate.
+2. Distinguish Skill installation from new-task loading and runtime tool exposure. Count project Skills only when the project is trusted; never trust a project merely to complete the probe. Do not recommend reinstalling a plugin from a failed CLI inventory alone.
+3. Name the effective `model_catalog_json`, exact `model`/`slug` match, and `display_name` fix.
+4. Give no-write recovery first: switch back to the old Provider or use an all-Provider task view. Database migration remains a separately confirmed high-risk operation.
+5. Separate static Direct/Deferred exposure, Plugins/Settings evidence, and a live Chrome smoke test.
 
-Rank plugin and Chrome evidence from strongest to weakest:
+For the official sign-in guide, report three states separately: the Provider block is configured, `codex login status` has or has not confirmed a ChatGPT sign-in, and plaintext token storage still has an independent warning. Do not call an unrun login probe “confirmed.”
 
-1. A requested live smoke test or successful real invocation.
-2. The current task exposing the expected tool, or the user confirming it on the Settings or Plugins page.
-3. A successful `codex plugin list --json` probe.
-4. Static configuration and manual inference.
+For history, distinguish “the read-only probe found zero mismatches” from “no compatible task database was found.” If affected tasks span multiple old Providers, report each Provider's aggregate unarchived count instead of assigning the total to one Provider.
 
-A failed or unparseable CLI plugin probe means the checker could not verify the inventory. It does not prove that a plugin is absent or broken, is reported as `info` / `unverified`, and does not change exit code 0 by itself. A successful CLI inventory that does not confirm Chrome is also lower-priority evidence, not a runtime failure. If stronger evidence shows the plugin is visible or working, describe the CLI result as a verification or compatibility gap and do not recommend reinstalling the plugin or clearing caches. Consider repair only when the UI and live runtime also fail.
-
-When `--symptom chrome-plugin-unavailable` is selected for a third-party Responses provider, inspect the selected model's actual `supports_search_tool` value near the front of Chrome/plugin troubleshooting. `false` is the primary static compatibility suspect because it may cause or accompany tool-capability incompatibility; it is not proof of a unique root cause and is not, by itself, an instruction to flip the field. `true` means this specific static field does not explain the symptom, so continue with Settings, plugin inventory, authorization, and live-smoke evidence. This early check does not change the evidence ranking above: a real invocation remains stronger than static configuration. Never infer or modify top-level `web_search`, and never recommend reinstalling a plugin merely because the CLI inventory probe failed.
-
-When the dated DeepSeek rule is selected, report all three field assessments. Treat `supports_search_tool = false` and `use_responses_lite = false` as the case values for the selected third-party DeepSeek Responses model. Treat `tool_mode = direct` as `review_if_symptomatic`: if `code_mode_only` already exposes the required direct tools, do not present a change as mandatory. Never infer that top-level `web_search` should be disabled.
-
-Lead with actionable errors and warnings. Put the selected compatibility mismatch ahead of plaintext-token risk, acknowledged authentication intent, and plugin CLI verification gaps. Do not present acknowledged intent or an unverified CLI probe as the most likely cause.
+Rank plugin and Chrome evidence from strongest to weakest: live invocation, current-task visibility or the Settings or Plugins page, successful CLI inventory, then static configuration. A failed or unparseable CLI probe does not prove that a plugin is absent or broken and does not change exit code 0 by itself.
 
 If the current task exposes a Chrome control tool and the user asked to test Chrome, perform a minimal smoke test using a new blank tab, then close only that temporary tab. Do not inspect existing tabs or visit a private site. Report the live smoke test separately from configuration evidence.
 

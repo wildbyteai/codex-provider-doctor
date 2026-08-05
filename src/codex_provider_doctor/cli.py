@@ -17,6 +17,7 @@ from codex_provider_doctor.diagnostics import (
     plugins_report,
     provider_report,
     runtime_report,
+    skills_report,
 )
 from codex_provider_doctor.report import (
     localize_report,
@@ -24,6 +25,7 @@ from codex_provider_doctor.report import (
     render_human,
     report_origins,
 )
+from codex_provider_doctor.solutions import PROBLEM_IDS, build_solutions
 
 
 ACKNOWLEDGEABLE_FINDINGS = ("provider.auth.openai_with_direct_token",)
@@ -50,6 +52,13 @@ def _parser() -> argparse.ArgumentParser:
         default=[],
         help="Add an explicitly reported runtime symptom to static compatibility triage.",
     )
+    parser.add_argument(
+        "--problem",
+        choices=PROBLEM_IDS,
+        action="append",
+        default=[],
+        help="Select a user-facing recovery guide. Repeat the option to diagnose multiple problems.",
+    )
     parser.add_argument("--no-command-checks", action="store_true")
     parser.add_argument(
         "--acknowledge",
@@ -68,6 +77,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("-c", "--config", dest="config_overrides", action="append", default=[])
     parser.add_argument("--lang", choices=["zh-CN", "en"], default="zh-CN")
     parser.add_argument("--json", action="store_true")
+    parser.add_argument(
+        "--details",
+        action="store_true",
+        help="Expand the human report with configuration layers, field origins, and complete evidence.",
+    )
     return parser
 
 
@@ -92,13 +106,23 @@ def _execute(args: argparse.Namespace) -> int:
         working_directory,
         findings,
     )
-    provider = provider_report(config, findings, set(args.acknowledge))
+    explicitly_requested_problems = list(dict.fromkeys(args.problem))
+    requested_problems = explicitly_requested_problems or list(PROBLEM_IDS)
+    acknowledgements = set(args.acknowledge)
+    if "keep-official-login" in explicitly_requested_problems:
+        acknowledgements.add("provider.auth.openai_with_direct_token")
+    provider = provider_report(config, findings, acknowledgements)
     command_checks = not args.no_command_checks
     codex_binary = shutil.which("codex") if command_checks else None
     runtime = runtime_report(command_checks, codex_binary, findings)
+    reported_symptoms = list(dict.fromkeys(args.symptom))
+    if "chrome-unavailable" in explicitly_requested_problems:
+        reported_symptoms = list(
+            dict.fromkeys([*reported_symptoms, "chrome-plugin-unavailable"])
+        )
     compatibility = compatibility_report(
         args.compat_rule,
-        args.symptom,
+        reported_symptoms,
         selected_model,
         provider,
         runtime["codex_version"],
@@ -113,6 +137,11 @@ def _execute(args: argparse.Namespace) -> int:
     )
     auth = auth_report(config, codex_home, command_checks, codex_binary, findings)
     plugins = plugins_report(config, command_checks, codex_binary, findings)
+    skills = skills_report(
+        codex_home,
+        resolution.project.get("root"),
+        str(resolution.project.get("trust_level") or "unknown"),
+    )
     history = history_report(config, codex_home, findings, set(args.confirm_cause))
 
     error_count = sum(item["severity"] == "error" for item in findings)
@@ -140,6 +169,7 @@ def _execute(args: argparse.Namespace) -> int:
         "compatibility": compatibility,
         "auth": auth,
         "plugins": plugins,
+        "skills": skills,
         "runtime": runtime,
         "compact": compact,
         "history": history,
@@ -160,11 +190,12 @@ def _execute(args: argparse.Namespace) -> int:
     }
 
     report = localize_report(report, args.lang)
+    report["solutions"] = build_solutions(report, requested_problems, args.lang)
     if args.json:
         json.dump(report, sys.stdout, ensure_ascii=False, indent=2)
         sys.stdout.write("\n")
     else:
-        sys.stdout.write(render_human(report, args.lang))
+        sys.stdout.write(render_human(report, args.lang, details=args.details))
     if error_count:
         return 2
     if warning_count:
