@@ -20,6 +20,7 @@ from codex_provider_doctor.diagnostics import (
     skills_report,
 )
 from codex_provider_doctor.report import (
+    build_solution_health_checks,
     localize_report,
     manual_checks,
     render_human,
@@ -191,6 +192,10 @@ def _execute(args: argparse.Namespace) -> int:
 
     report = localize_report(report, args.lang)
     report["solutions"] = build_solutions(report, requested_problems, args.lang)
+    report["solutions"]["health_checks"] = build_solution_health_checks(
+        report,
+        args.lang,
+    )
     if args.json:
         json.dump(report, sys.stdout, ensure_ascii=False, indent=2)
         sys.stdout.write("\n")

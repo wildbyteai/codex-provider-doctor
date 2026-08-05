@@ -146,7 +146,11 @@
 
 如果本机已经安装 codex-provider-doctor，优先运行：
 
-codex-provider-doctor --json
+codex-provider-doctor
+
+不要为普通诊断添加 `--json`。默认人类报告已经固定输出“当前结果、受什么控制、目标状态、怎么处理、怎么确认”，应按原顺序完整保留每张体检单，不要再改写成散乱的技术总结。只有机器集成确实需要 JSON 时才使用 `--json`，并按 `solutions.health_checks` 的顺序和五个字段输出。
+
+运行时保持用户原来的项目工作目录和真实 CODEX_HOME。若临时仓库副本或启动器改变了目录，显式传 `--cwd <原项目目录>`；只有 CODEX_HOME、工作目录和 Profile 都一致时，才能说临时副本与已安装 Skill 的诊断范围等价。
 
 根据用户问题添加一个或多个入口：
 

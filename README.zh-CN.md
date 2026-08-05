@@ -51,7 +51,11 @@ doctor 默认不再输出一串技术判断，而是把每个问题固定整理�
 
 安装参数、仓库根目录和 Skill 名称由 Agent 自己处理。如果当前任务没有匹配到 Skill，再显式说“使用 `$codex-provider-doctor` 检查”。Agent 会自己运行仓库内置的只读检测入口，再用中文解释结果；不需要用户复制 `codex-provider-doctor` 命令。
 
+Skill 默认直接运行人类可读报告，不再先取 `--json` 后自由总结。Agent 必须保留工具输出的每张体检单及五个固定字段；只有机器集成需要 JSON 时，才读取 `solutions.health_checks`。这样同一份诊断不会因为不同电脑上的 Agent 总结习惯而重新变成散乱技术说明。
+
 Skill 和命令行工具使用同一套诊断代码。Skill 不会全局安装 Python 包，不会创建虚拟环境，也不会在诊断阶段修改配置或数据库。当前仍需要本机存在 Python 3.11 或更高版本。
+
+如果权限限制导致只能从临时仓库副本运行，必须继续使用真实 `CODEX_HOME`、原项目工作目录和同一个 Profile；启动器改变目录时要显式传回 `--cwd`。三者没有核对一致前，不能笼统声称“结果不受影响”，尤其是项目配置和项目级 Skill 的判断可能不同。
 
 ## 它会检查什么
 
@@ -197,6 +201,8 @@ codex-provider-doctor --details
 codex-provider-doctor --json
 ```
 
+JSON 中的 `solutions.health_checks` 与默认人类报告一一对应，每项固定包含：`current_result`、`controlled_by`、`desired_state`、`how_to_change` 和 `how_to_verify`。面向普通用户时优先直接使用默认报告，不要从原始 finding 重新组织一份自由格式总结。
+
 如果 Codex 是用某个 Profile 启动的，诊断时也要传同一个 Profile：
 
 ```shell
@@ -273,7 +279,7 @@ codex doctor
 - 插件报告新增 `inventory_status`；命令失败、JSON 无效或 JSON 结构不受支持时，`probe` 保持为 `failed`，清单状态诚实地保持为 `unverified`。
 - 模型目录报告新增 `model_count`。
 - 历史任务报告新增 `provider_counts`。
-- 报告新增本地 `skills` 数量，以及面向 5 个问题的 `solutions`；登录方案包含独立的官方登录核验状态，历史方案包含受影响旧 Provider 的聚合数量。
+- 报告新增本地 `skills` 数量，以及面向 5 个问题的 `solutions`；`solutions.health_checks` 固定保存与人类报告一致的五栏体检单，登录方案包含独立的官方登录核验状态，历史方案包含受影响旧 Provider 的聚合数量。
 - 兼容报告新增一般 Chrome 排查使用的 `symptom_assessments`，以及带日期规则使用的 `field_assessments` 和 `observed_differences`；`suggested_changes` 不包含只按症状观察的字段。
 - JSON finding 数组保持诊断生成顺序；优先级排序只用于人类可读报告，不改变机器输出顺序。
 

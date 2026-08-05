@@ -45,6 +45,10 @@ Check how to keep my official sign-in and fix plugins, Skills, model names, olde
 
 Codex handles the repository path, Skill name, and installer arguments. If the current task does not match the Skill, explicitly ask it to use `$codex-provider-doctor`. Codex then runs the bundled read-only checker and explains the result. The skill and CLI share the same source, so the skill does not globally install the package or create a virtual environment. Python 3.11 or later is currently required.
 
+The Skill uses the canonical human-readable report directly instead of asking an Agent to freely summarize raw JSON. Every emitted health-check card and all five fields must be preserved. Machine integrations may still use `--json` and should render `solutions.health_checks` in order.
+
+If permissions require running from a temporary repository copy, keep the real `CODEX_HOME`, the original project working directory, and the same Profile. Pass `--cwd` when a launcher changes directories. Do not claim the result is unaffected until those three inputs match, because project configuration and project-Skill coverage can otherwise differ.
+
 ## What it checks
 
 - The effective system, user, profile, trusted-project, and command-line configuration layers.
@@ -164,6 +168,8 @@ Machine-readable report:
 ```shell
 codex-provider-doctor --json
 ```
+
+`solutions.health_checks` mirrors the default human report. Each entry contains `current_result`, `controlled_by`, `desired_state`, `how_to_change`, and `how_to_verify`; user-facing clients should render those fields instead of rebuilding a free-form summary from raw findings.
 
 Select the same profile used to launch Codex:
 

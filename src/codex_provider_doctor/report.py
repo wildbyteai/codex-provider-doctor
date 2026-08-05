@@ -698,6 +698,40 @@ def _solution_presentation(
     }
 
 
+def _build_solution_health_check(
+    item: dict[str, Any],
+    report: dict[str, Any],
+    language: str,
+) -> dict[str, Any]:
+    presentation = _solution_presentation(
+        item,
+        report,
+        language,
+        details=False,
+    )
+    return {
+        "id": item["id"],
+        "title": item["title"],
+        "status": item.get("status"),
+        "status_label": _solution_status_label(item.get("status"), language),
+        "current_result": _solution_result(item, report, language),
+        "controlled_by": presentation["controls"],
+        "desired_state": presentation["goal"],
+        "how_to_change": presentation["actions"],
+        "how_to_verify": presentation["verification"],
+    }
+
+
+def build_solution_health_checks(
+    report: dict[str, Any],
+    language: str,
+) -> list[dict[str, Any]]:
+    return [
+        _build_solution_health_check(item, report, language)
+        for item in report.get("solutions", {}).get("items", [])
+    ]
+
+
 def _append_solution_guides(
     lines: list[str],
     report: dict[str, Any],
@@ -706,6 +740,12 @@ def _append_solution_guides(
     details: bool,
 ) -> None:
     items = report.get("solutions", {}).get("items", [])
+    cards = report.get("solutions", {}).get("health_checks", [])
+    cards_by_id = {
+        str(card.get("id")): card
+        for card in cards
+        if isinstance(card, dict)
+    }
     heading = (
         f"Action checklist ({len(items)} items)"
         if language == "en"
@@ -713,19 +753,16 @@ def _append_solution_guides(
     )
     lines.extend(["", heading])
     for index, item in enumerate(items, start=1):
-        status = _solution_status_label(item.get("status"), language)
+        card = cards_by_id.get(str(item.get("id")))
+        if card is None:
+            card = _build_solution_health_check(item, report, language)
+        status = str(card["status_label"])
         lines.append(f"{index}. {item['title']} [{status}]" if language == "en" else f"{index}. {item['title']}【{status}】")
-        result = _solution_result(item, report, language)
-        presentation = _solution_presentation(
-            item,
-            report,
-            language,
-            details=details,
-        )
-        controls = presentation["controls"]
-        goal = presentation["goal"]
-        verification = presentation["verification"]
-        actions = presentation["actions"]
+        result = str(card["current_result"])
+        controls = card["controlled_by"]
+        goal = str(card["desired_state"])
+        verification = str(card["how_to_verify"])
+        actions = list(item.get("actions", [])) if details else card["how_to_change"]
         if language == "en":
             lines.append(f"   Current result: {result}")
             lines.append("   Controlled by:")

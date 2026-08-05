@@ -21,14 +21,16 @@ When no single problem is clear, omit `--problem`; the human report shows all fi
 
 ## Run the diagnosis
 
-1. Keep the user's current project as the working directory so trusted project configuration is evaluated correctly.
+1. Keep the user's current project as the working directory so trusted project configuration is evaluated correctly. Do not `cd` into the Skill directory. If a temporary repository copy or another launcher changes the working directory, pass the original project explicitly with `--cwd <original-project>`.
 2. Resolve the skill directory from this file and run:
 
    ```text
-   python3 <skill-directory>/scripts/run_skill.py --json --problem <problem-id>
+   python3 <skill-directory>/scripts/run_skill.py --problem <problem-id>
    ```
 
-   Python 3.11 or later is required. Do not globally install the package or create a virtual environment.
+   Omit `--problem` when all five checks are useful. Do not add `--json` for a normal diagnosis: the default output is already the canonical structured health-check report. Use `--json` only for a machine-readable integration.
+
+   Python 3.11 or later is required. Do not globally install the package or create a virtual environment. Keep the real `CODEX_HOME`; do not point the checker at the temporary repository copy.
 3. Pass `--profile <name>` only when the active Codex Profile is known. Never guess a Profile.
 4. `--problem keep-official-login` is an explicit confirmation of the intended dual-authentication design for a custom third-party Provider. The correct location is `[model_providers.<id>]`: keep `requires_openai_auth = true` there while the third-party request uses `experimental_bearer_token`. This retains the official account state; the separate plaintext-token warning must remain. Do not apply this pattern to the built-in `openai` Provider, and do not stack it on an existing `env_key` or command-auth method—report a controlled authentication-method migration instead. The legacy explicit form `--acknowledge provider.auth.openai_with_direct_token` is also supported.
 5. `--problem chrome-unavailable` also enables the legacy `--symptom chrome-plugin-unavailable` assessment. In the official Codex source snapshot dated 2026-08-05, `supports_search_tool = false` forces the namespace-tool planning branch to Direct, but does not prove Chrome exposure. `true` permits Deferred only when namespace tools are also enabled; otherwise Direct remains possible. Record the detected local version, leave the namespace-tools state unverified unless stronger evidence exists, and require a live task check. Never infer a top-level `web_search` change.
@@ -42,6 +44,8 @@ Exit codes remain `0` for no errors or warnings, `1` for warnings, `2` for error
 
 Lead with a fixed health-check card for each requested problem. Use this order every time: current result, what controls it, desired state, how to change it, and how to verify it. Use plain language first; keep raw field names secondary. Do not start with configuration layers.
 
+Preserve every health-check card emitted by the checker, in the same order and with all five fields. Do not replace the cards with a free-form technical summary. A short upgrade note may come first, but it must not consume or substitute for the diagnostic cards. If a machine integration requires `--json`, render `solutions.health_checks` in order instead of inventing a new narrative from raw findings.
+
 For the five guides:
 
 1. Explain the correct dual-authentication block and keep plaintext-token risk separate.
@@ -51,6 +55,8 @@ For the five guides:
 5. Separate static Direct/Deferred exposure, Plugins/Settings evidence, and a live Chrome smoke test.
 
 The default human response must read like an action checklist, not a technical log. Put full field paths, origin layers, raw compatibility assessments, and the original technical diagnosis behind `--details`, except when one exact field is required to carry out the recommended change.
+
+Running the same source from a temporary clone does not by itself prove that the result is unaffected. State equivalence only after confirming the same real `CODEX_HOME`, original working directory, and active Profile were used; otherwise mark project configuration and project-Skill coverage as potentially different.
 
 For the official sign-in guide, report three states separately: the Provider block is configured, `codex login status` has or has not confirmed a ChatGPT sign-in, and plaintext token storage still has an independent warning. Do not call an unrun login probe “confirmed.”
 

@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 - Independent official-login verification state in the sign-in guide, plus per-Provider affected counts and an explicit not-checked state in the history guide.
 - A Windows Desktop model-picker reminder that activates only after static catalog fields are valid, keeps App Server, picker, and live-request evidence separate, and never claims automatic UI detection.
 - A consistent plain-language health-check layout for every problem: current result, controls, desired state, recovery actions, and verification, with technical diagnoses moved behind `--details`.
+- Machine-readable `solutions.health_checks` cards that preserve the same five-field structure as the human report.
 - Installable Codex Skill metadata with implicit natural-language invocation.
 - A bundled Skill runner that uses the repository source without global package installation.
 - Skill entry-point tests and natural-language installation instructions.
@@ -42,6 +43,8 @@ All notable changes to this project will be documented in this file.
 - Kept JSON finding order in diagnostic generation order; priority sorting now applies only to human-readable output.
 - Scoped `deepseek-direct-tools-2026-08-03` to a selected DeepSeek model on a third-party Responses provider; official models remain outside the rule even when stored in the same custom catalog.
 - Made human reports explicitly state when the selected model or Provider is outside the DeepSeek rule, including that official models keep their own `supports_search_tool` value.
+- Made the Codex Skill consume the canonical human report by default instead of inviting a free-form JSON summary, while retaining `--json` for machine integrations.
+- Required temporary-clone runs to preserve the real `CODEX_HOME`, original working directory, and active Profile before claiming equivalent diagnostic coverage.
 - Treated `tool_mode = direct` as symptom-driven (`review_if_symptomatic`) while keeping `supports_search_tool = false` and `use_responses_lite = false` as the dated case values.
 - Kept `schema_version = 1` and existing top-level fields. Summary adds `confirmed_causes`, compatibility adds `symptom_assessments`, and `suggested_changes` excludes symptom-only observations.
 

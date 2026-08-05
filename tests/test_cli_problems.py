@@ -12,6 +12,140 @@ from tests.test_cli_runtime import install_fake_codex
 
 
 class UserProblemGuideTests(unittest.TestCase):
+    def test_json_exposes_the_same_five_health_check_fields_as_the_human_report(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            codex_home = root / "codex-home"
+            codex_home.mkdir()
+            (codex_home / "config.toml").write_text(
+                "\n".join(
+                    [
+                        'model = "third-party-model"',
+                        'model_provider = "custom"',
+                        "",
+                        "[model_providers.custom]",
+                        'base_url = "https://api.example.invalid/v1"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            result = run_doctor(
+                "--codex-home",
+                str(codex_home),
+                "--system-config",
+                str(root / "missing-system.toml"),
+                "--no-command-checks",
+                "--json",
+            )
+
+            self.assertIn(result.returncode, (0, 1), result.stderr)
+            report = json.loads(result.stdout)
+            cards = report["solutions"]["health_checks"]
+            self.assertEqual(
+                [card["id"] for card in cards],
+                [
+                    "keep-official-login",
+                    "plugins-or-skills-unavailable",
+                    "model-name-incorrect",
+                    "history-missing",
+                    "chrome-unavailable",
+                ],
+            )
+            for card in cards:
+                self.assertEqual(
+                    set(card),
+                    {
+                        "id",
+                        "title",
+                        "status",
+                        "status_label",
+                        "current_result",
+                        "controlled_by",
+                        "desired_state",
+                        "how_to_change",
+                        "how_to_verify",
+                    },
+                )
+                self.assertTrue(card["current_result"])
+                self.assertTrue(card["controlled_by"])
+                self.assertTrue(card["desired_state"])
+                self.assertTrue(card["how_to_change"])
+                self.assertTrue(card["how_to_verify"])
+
+            human_result = run_doctor(
+                "--codex-home",
+                str(codex_home),
+                "--system-config",
+                str(root / "missing-system.toml"),
+                "--no-command-checks",
+            )
+            self.assertEqual(human_result.returncode, result.returncode, human_result.stderr)
+            for card in cards:
+                self.assertIn(
+                    f"{card['title']}【{card['status_label']}】",
+                    human_result.stdout,
+                )
+                self.assertIn(
+                    f"当前结果：{card['current_result']}",
+                    human_result.stdout,
+                )
+                for control in card["controlled_by"]:
+                    self.assertIn(f"- {control}", human_result.stdout)
+                self.assertIn(
+                    f"目标状态：{card['desired_state']}",
+                    human_result.stdout,
+                )
+                for action in card["how_to_change"]:
+                    self.assertIn(action, human_result.stdout)
+                self.assertIn(
+                    f"怎么确认：{card['how_to_verify']}",
+                    human_result.stdout,
+                )
+
+    def test_json_health_checks_do_not_repeat_secrets_private_urls_or_user_paths(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="private-user-path-") as temporary_directory:
+            root = Path(temporary_directory)
+            codex_home = root / "codex-home"
+            codex_home.mkdir()
+            secret = "health-check-token-must-never-appear"
+            private_path = "private/account/route"
+            (codex_home / "config.toml").write_text(
+                "\n".join(
+                    [
+                        'model = "third-party-model"',
+                        'model_provider = "custom"',
+                        "",
+                        "[model_providers.custom]",
+                        f'base_url = "https://api.example.invalid/{private_path}"',
+                        "requires_openai_auth = true",
+                        f'experimental_bearer_token = "{secret}"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            result = run_doctor(
+                "--codex-home",
+                str(codex_home),
+                "--system-config",
+                str(root / "missing-system.toml"),
+                "--no-command-checks",
+                "--problem",
+                "keep-official-login",
+                "--json",
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            report = json.loads(result.stdout)
+            health_checks = json.dumps(
+                report["solutions"]["health_checks"],
+                ensure_ascii=False,
+            )
+            self.assertNotIn(secret, health_checks)
+            self.assertNotIn(private_path, health_checks)
+            self.assertNotIn(str(root), health_checks)
+
     def test_default_report_does_not_acknowledge_dual_auth_intent_without_user_confirmation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)

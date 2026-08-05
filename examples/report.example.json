@@ -107,6 +107,27 @@
           "Only if binding migration is necessary: quit Codex, back up the database plus WAL/SHM, show the exact row count and field diff, and obtain another explicit confirmation."
         ]
       }
+    ],
+    "health_checks": [
+      {
+        "id": "history-missing",
+        "title": "Recover task history",
+        "status": "binding_mismatch_detected",
+        "status_label": "provider mismatch detected",
+        "current_result": "Status: provider mismatch detected. Unarchived tasks bound to another Provider: 2.",
+        "controlled_by": [
+          "Current task-list context: the active Provider (thirdparty).",
+          "Stored task ownership: the Provider saved when each task was created.",
+          "Visibility: Provider filtering or an all-Provider view in the installed Codex build."
+        ],
+        "desired_state": "Recover visibility without writing the task database; migrate bindings only as a separately approved last resort.",
+        "how_to_change": [
+          "Confirm the active Codex home/Profile and the read-only Provider counts.",
+          "Switch to the stored Provider, use an all-Provider view, or update Codex before changing storage.",
+          "Only as a last resort, back up the database plus WAL/SHM and obtain another explicit confirmation."
+        ],
+        "how_to_verify": "The visible task count matches the read-only aggregate after switching Provider or view."
+      }
     ]
   },
   "summary": {

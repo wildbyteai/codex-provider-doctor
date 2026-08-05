@@ -47,6 +47,23 @@ class SkillEntrypointTests(unittest.TestCase):
         self.assertIn("does not prove that a plugin is absent or broken", skill_text)
         self.assertIn("does not change exit code 0 by itself", skill_text)
 
+    def test_skill_uses_the_structured_human_report_instead_of_free_form_json_summary(self) -> None:
+        skill_text = SKILL_FILE.read_text(encoding="utf-8")
+        prompt = AGENT_PROMPT.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "python3 <skill-directory>/scripts/run_skill.py --problem <problem-id>",
+            skill_text,
+        )
+        self.assertNotIn(
+            "python3 <skill-directory>/scripts/run_skill.py --json --problem <problem-id>",
+            skill_text,
+        )
+        self.assertIn("Do not add `--json` for a normal diagnosis", skill_text)
+        self.assertIn("preserve every health-check card", skill_text.lower())
+        self.assertIn("不要为普通诊断添加 `--json`", prompt)
+        self.assertIn("solutions.health_checks", prompt)
+
     def test_skill_and_docs_explain_acknowledged_intent_and_scoped_compatibility(self) -> None:
         skill_text = SKILL_FILE.read_text(encoding="utf-8")
         readme_zh = README_ZH.read_text(encoding="utf-8")
@@ -144,6 +161,44 @@ class SkillEntrypointTests(unittest.TestCase):
         self.assertEqual(report["summary"]["status"], "ok")
         self.assertEqual(report["effective"]["model_provider"], "thirdparty")
         self.assertEqual(report["catalog"]["selected_model"]["slug"], "deepseek-v4-flash")
+
+    def test_bundled_runner_defaults_to_the_five_field_human_health_check(self) -> None:
+        codex_home = FIXTURES / "profile-home"
+        env = os.environ.copy()
+        env.pop("PYTHONPATH", None)
+        env["DEEPSEEK_API_KEY"] = "test-only-placeholder"
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(SKILL_RUNNER),
+                "--codex-home",
+                str(codex_home),
+                "--profile",
+                "work",
+                "--system-config",
+                str(FIXTURES / "missing-system.toml"),
+                "--no-command-checks",
+                "--problem",
+                "model-name-incorrect",
+            ],
+            cwd=REPO_ROOT,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(result.stdout.lstrip().startswith("{"))
+        for label in (
+            "当前结果：",
+            "受什么控制：",
+            "目标状态：",
+            "怎么处理：",
+            "怎么确认：",
+        ):
+            self.assertEqual(result.stdout.count(label), 1)
 
 
 if __name__ == "__main__":
