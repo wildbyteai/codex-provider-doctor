@@ -76,6 +76,9 @@ class ProviderAuthenticationTests(unittest.TestCase):
                             "status": "unverified",
                             "intentional": None,
                             "acknowledgement_code": "provider.auth.openai_with_direct_token",
+                            "official_login_state": "separate_auth_report",
+                            "provider_request_authentication": "explicit_bearer_token_configured",
+                            "plaintext_token_risk": "independent_warning",
                         },
                     },
                     "finding_codes": [
@@ -229,6 +232,7 @@ class ProviderAuthenticationTests(unittest.TestCase):
                         "info": 1,
                         "unverified": 1,
                         "acknowledged": 0,
+                        "confirmed_causes": 0,
                         "intentional": 0,
                     },
                     "authentication_intent": {
@@ -236,6 +240,9 @@ class ProviderAuthenticationTests(unittest.TestCase):
                         "status": "unverified",
                         "intentional": None,
                         "acknowledgement_code": "provider.auth.openai_with_direct_token",
+                        "official_login_state": "separate_auth_report",
+                        "provider_request_authentication": "explicit_bearer_token_configured",
+                        "plaintext_token_risk": "independent_warning",
                     },
                     "findings": [
                         {
@@ -314,6 +321,7 @@ class ProviderAuthenticationTests(unittest.TestCase):
                         "info": 1,
                         "unverified": 0,
                         "acknowledged": 1,
+                        "confirmed_causes": 0,
                         "intentional": 1,
                     },
                     "authentication_intent": {
@@ -321,6 +329,9 @@ class ProviderAuthenticationTests(unittest.TestCase):
                         "status": "acknowledged",
                         "intentional": True,
                         "acknowledgement_code": "provider.auth.openai_with_direct_token",
+                        "official_login_state": "separate_auth_report",
+                        "provider_request_authentication": "explicit_bearer_token_configured",
+                        "plaintext_token_risk": "independent_warning",
                     },
                     "intent_finding": {
                         "code": "provider.auth.openai_with_direct_token",

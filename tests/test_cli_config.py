@@ -87,6 +87,7 @@ class ConfigFileTests(unittest.TestCase):
                         "info": 0,
                         "unverified": 0,
                         "acknowledged": 0,
+                        "confirmed_causes": 0,
                         "intentional": 0,
                     },
                     "tool_error": {

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import sqlite3
 import tempfile
 import unittest
 
@@ -10,6 +11,54 @@ from tests.test_cli_runtime import install_fake_codex
 
 
 class HumanReportTests(unittest.TestCase):
+    def test_human_report_leads_with_user_confirmed_history_root_cause(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            codex_home = root / "codex-home"
+            codex_home.mkdir()
+            (codex_home / "config.toml").write_text(
+                "\n".join(
+                    [
+                        'model = "third-party-model"',
+                        'model_provider = "custom"',
+                        "",
+                        "[model_providers.custom]",
+                        'base_url = "https://api.example.invalid/v1"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            with sqlite3.connect(codex_home / "history.sqlite") as connection:
+                connection.execute(
+                    """
+                    CREATE TABLE threads (
+                        id TEXT PRIMARY KEY,
+                        model_provider TEXT NOT NULL,
+                        archived INTEGER NOT NULL DEFAULT 0
+                    )
+                    """
+                )
+                connection.execute(
+                    "INSERT INTO threads (id, model_provider, archived) VALUES (?, ?, ?)",
+                    ("old-thread", "openai", 0),
+                )
+
+            result = run_doctor(
+                "--codex-home",
+                str(codex_home),
+                "--system-config",
+                str(root / "missing-system.toml"),
+                "--no-command-checks",
+                "--confirm-cause",
+                "history.provider_mismatch",
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertIn("已确认根因：历史任务不可见的根因已由用户确认", result.stdout)
+            self.assertIn("已确认根因 1 项", result.stdout)
+            self.assertIn("【已确认根因】历史任务不可见的根因已由用户确认", result.stdout)
+            self.assertNotIn("首要诊断：历史任务不可见", result.stdout)
+
     def test_chinese_report_explains_provider_auth_conflict(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
@@ -43,6 +92,50 @@ class HumanReportTests(unittest.TestCase):
             self.assertIn("OpenAI 认证会忽略第三方环境变量", result.stdout)
             self.assertIn("如果该接口使用自己的 API Key", result.stdout)
             self.assertIn("auth.json 内容：未读取", result.stdout)
+
+    def test_acknowledged_auth_design_separates_login_provider_requests_and_plaintext_risk(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            codex_home = root / "codex-home"
+            codex_home.mkdir()
+            secret = "human-auth-separation-token-must-not-leak"
+            (codex_home / "config.toml").write_text(
+                "\n".join(
+                    [
+                        'model = "third-party-model"',
+                        'model_provider = "custom"',
+                        "",
+                        "[model_providers.custom]",
+                        'base_url = "https://api.example.invalid/v1"',
+                        "requires_openai_auth = true",
+                        f'experimental_bearer_token = "{secret}"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            result = run_doctor(
+                "--codex-home",
+                str(codex_home),
+                "--system-config",
+                str(root / "missing-system.toml"),
+                "--no-command-checks",
+                "--acknowledge",
+                "provider.auth.openai_with_direct_token",
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertNotIn(secret, result.stdout)
+            self.assertIn("Provider 请求认证", result.stdout)
+            self.assertIn(
+                "requires_openai_auth：true（只描述 Provider 请求认证，不代表官方登录状态）",
+                result.stdout,
+            )
+            self.assertIn("显式 Bearer Token：已配置（值未读取）", result.stdout)
+            self.assertIn("认证组合意图：已确认且有意", result.stdout)
+            self.assertIn("官方 ChatGPT/Codex 登录状态", result.stdout)
+            self.assertIn("配置文件中存在直接 Bearer Token", result.stdout)
+            self.assertNotIn("认证组合意图尚未确认", result.stdout)
 
     def test_english_report_has_the_same_public_sections(self) -> None:
         codex_home = FIXTURES / "profile-home"
@@ -134,6 +227,69 @@ class HumanReportTests(unittest.TestCase):
             self.assertIn("use_responses_lite：false（与案例一致）", result.stdout)
             self.assertNotIn("tool_mode：code_mode_only → direct（建议修改）", result.stdout)
             self.assertIn("不是所有第三方模型的默认值", result.stdout)
+
+    def test_chrome_symptom_report_puts_false_search_support_before_cli_inventory_gap(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            codex_home = root / "codex-home"
+            bin_directory = root / "bin"
+            codex_home.mkdir()
+            bin_directory.mkdir()
+            (codex_home / "catalog.json").write_text(
+                """{
+  "models": [
+    {
+      "slug": "vendor-model-v1",
+      "display_name": "Vendor Model V1",
+      "tool_mode": "code_mode_only",
+      "supports_search_tool": false,
+      "use_responses_lite": true
+    }
+  ]
+}
+""",
+                encoding="utf-8",
+            )
+            (codex_home / "config.toml").write_text(
+                "\n".join(
+                    [
+                        'model = "vendor-model-v1"',
+                        'model_provider = "vendor"',
+                        'model_catalog_json = "catalog.json"',
+                        "",
+                        "[model_providers.vendor]",
+                        'base_url = "https://api.example.invalid/v1"',
+                        'wire_api = "responses"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            install_fake_codex(bin_directory, plugin_marketplace_failure=True)
+
+            result = run_doctor(
+                "--codex-home",
+                str(codex_home),
+                "--system-config",
+                str(root / "missing-system.toml"),
+                "--symptom",
+                "chrome-plugin-unavailable",
+                extra_env={
+                    "PATH": f"{bin_directory}{os.pathsep}{os.environ.get('PATH', '')}",
+                },
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertIn(
+                "首要诊断：Chrome 不可用的首要静态兼容性疑点：supports_search_tool = false",
+                result.stdout,
+            )
+            self.assertIn("Chrome / 插件兼容性排查", result.stdout)
+            self.assertIn("证据类型：模型目录静态字段", result.stdout)
+            self.assertIn("真实调用烟雾测试：诊断器未执行", result.stdout)
+            compatibility_index = result.stdout.index("Chrome 不可用的首要静态兼容性疑点")
+            plugin_index = result.stdout.index("CLI 插件探针未能核验实际状态")
+            self.assertLess(compatibility_index, plugin_index)
+            self.assertIn("不要仅因 CLI 插件清单失败而重装插件", result.stdout)
 
     def test_chinese_report_explicitly_keeps_official_model_outside_deepseek_rule(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

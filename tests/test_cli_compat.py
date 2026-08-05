@@ -11,6 +11,159 @@ from tests.test_cli_runtime import install_fake_codex
 
 
 class CompatibilityRuleTests(unittest.TestCase):
+    def test_chrome_symptom_prioritizes_false_search_support_on_any_third_party_responses_model(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            codex_home = root / "codex-home"
+            codex_home.mkdir()
+            (codex_home / "catalog.json").write_text(
+                json.dumps(
+                    {
+                        "models": [
+                            {
+                                "slug": "vendor-model-v1",
+                                "display_name": "Vendor Model V1",
+                                "tool_mode": "code_mode_only",
+                                "supports_search_tool": False,
+                                "use_responses_lite": True,
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (codex_home / "config.toml").write_text(
+                "\n".join(
+                    [
+                        'model = "vendor-model-v1"',
+                        'model_provider = "vendor"',
+                        'model_catalog_json = "catalog.json"',
+                        "",
+                        "[model_providers.vendor]",
+                        'base_url = "https://api.example.invalid/v1"',
+                        'wire_api = "responses"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            result = run_doctor(
+                "--codex-home",
+                str(codex_home),
+                "--system-config",
+                str(root / "missing-system.toml"),
+                "--symptom",
+                "chrome-plugin-unavailable",
+                "--no-command-checks",
+                "--json",
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            report = json.loads(result.stdout)
+            finding = report["findings"][0]
+            self.assertEqual(
+                {
+                    "symptom_assessments": report["compatibility"]["symptom_assessments"],
+                    "finding": {
+                        key: finding[key]
+                        for key in ("code", "severity", "status", "category")
+                    },
+                    "web_search": report["effective"]["web_search"],
+                },
+                {
+                    "symptom_assessments": [
+                        {
+                            "id": "chrome-plugin-unavailable",
+                            "applicability": "applicable",
+                            "applicability_reason": None,
+                            "evidence_source": "catalog.selected_model.supports_search_tool",
+                            "observed_supports_search_tool": False,
+                            "assessment": "primary_static_compatibility_suspect",
+                            "causality": "not_proven",
+                            "live_smoke_test": "not_run_by_doctor",
+                            "next_step": "compare_static_field_with_live_and_plugin_evidence",
+                        }
+                    ],
+                    "finding": {
+                        "code": "compat.chrome.supports_search_tool_false",
+                        "severity": "warning",
+                        "status": "open",
+                        "category": "diagnostic",
+                    },
+                    "web_search": None,
+                },
+            )
+            self.assertIn("首要静态兼容性疑点", finding["message"])
+            self.assertIn("不能证明它是唯一根因", finding["message"])
+            self.assertIn("不要修改顶层 web_search", finding["remedy"])
+
+    def test_chrome_symptom_does_not_blame_search_support_when_catalog_value_is_true(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            codex_home = root / "codex-home"
+            codex_home.mkdir()
+            (codex_home / "catalog.json").write_text(
+                json.dumps(
+                    {
+                        "models": [
+                            {
+                                "slug": "vendor-model-v1",
+                                "display_name": "Vendor Model V1",
+                                "tool_mode": "code_mode_only",
+                                "supports_search_tool": True,
+                                "use_responses_lite": True,
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (codex_home / "config.toml").write_text(
+                "\n".join(
+                    [
+                        'model = "vendor-model-v1"',
+                        'model_provider = "vendor"',
+                        'model_catalog_json = "catalog.json"',
+                        "",
+                        "[model_providers.vendor]",
+                        'base_url = "https://api.example.invalid/v1"',
+                        'wire_api = "responses"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            result = run_doctor(
+                "--codex-home",
+                str(codex_home),
+                "--system-config",
+                str(root / "missing-system.toml"),
+                "--symptom",
+                "chrome-plugin-unavailable",
+                "--no-command-checks",
+                "--json",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            report = json.loads(result.stdout)
+            assessment = report["compatibility"]["symptom_assessments"][0]
+            self.assertEqual(
+                {
+                    "observed": assessment["observed_supports_search_tool"],
+                    "assessment": assessment["assessment"],
+                    "causality": assessment["causality"],
+                    "next_step": assessment["next_step"],
+                    "finding_codes": [finding["code"] for finding in report["findings"]],
+                },
+                {
+                    "observed": True,
+                    "assessment": "not_indicated_by_static_field",
+                    "causality": "not_proven",
+                    "next_step": "continue_plugin_and_live_checks",
+                    "finding_codes": [],
+                },
+            )
+
     def test_deepseek_rule_is_not_applicable_to_builtin_openai_provider(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)

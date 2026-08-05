@@ -18,9 +18,11 @@ Run the bundled doctor yourself. Do not ask the user to copy or execute terminal
 
    Use `python` instead of `python3` only after confirming that it is Python 3.11 or later.
 3. Pass `--profile <name>` only when the active Codex Profile is known from the current task or the user. If it is unknown, run the baseline diagnosis and clearly mark the Profile as unconfirmed; do not guess.
-4. Add `--compat-rule deepseek-direct-tools-2026-08-03` only when the user explicitly asks about that dated DeepSeek compatibility case or asks to compare the observed `supports_search_tool: false` configuration. The rule applies only when the selected catalog model is a DeepSeek model on a third-party Responses provider. It does not apply to an official model merely because that model appears in the same custom catalog.
-5. Add `--acknowledge provider.auth.openai_with_direct_token` only after the user explicitly confirms that `requires_openai_auth = true` plus `experimental_bearer_token` is intentional. This records intent; it does not suppress the separate plaintext-token warning.
-6. Preserve the program's exit code interpretation:
+4. Add `--symptom chrome-plugin-unavailable` when the user explicitly reports that Chrome is unavailable while a third-party model is selected. This enables general third-party Responses-provider triage of the selected catalog entry's actual `supports_search_tool` value; it does not change any field.
+5. Add `--compat-rule deepseek-direct-tools-2026-08-03` only when the user explicitly asks about that dated DeepSeek compatibility case or asks to compare the observed case values. The rule applies only when the selected catalog model is a DeepSeek model on a third-party Responses provider. It does not apply to an official model merely because that model appears in the same custom catalog.
+6. Add `--acknowledge provider.auth.openai_with_direct_token` only after the user explicitly confirms that `requires_openai_auth = true` plus `experimental_bearer_token` is intentional. This records intent; it does not suppress the separate plaintext-token warning.
+7. Add `--confirm-cause history.provider_mismatch` only after the read-only report finds a history Provider mismatch and the user explicitly confirms that this mismatch caused the current history-visibility problem. This upgrades the incident wording from a possibility to a user-confirmed root cause; it never repairs the database.
+8. Preserve the program's exit code interpretation:
    - `0`: no detected errors or warnings. Information, unverified CLI evidence, or acknowledged intent does not change exit code 0 by itself.
    - `1`: warnings need review.
    - `2`: configuration errors were detected.
@@ -30,7 +32,7 @@ The entry point loads the source bundled with this skill. Do not install the pac
 
 ## Explain the result
 
-Reply in the user's language; default to Chinese. Lead with the error count, warning count, and the most likely cause. Then cover only the useful evidence:
+Reply in the user's language; default to Chinese. Lead with the error count and warning count. If a finding is marked as a confirmed cause, state it as the user-confirmed root cause; otherwise state only the strongest diagnosis supported by the available evidence. Then cover only the useful evidence:
 
 1. Effective configuration layers and the source of each important field.
 2. The actual `model_catalog_json` path, including how a relative path was resolved.
@@ -51,6 +53,8 @@ Rank plugin and Chrome evidence from strongest to weakest:
 
 A failed or unparseable CLI plugin probe means the checker could not verify the inventory. It does not prove that a plugin is absent or broken, is reported as `info` / `unverified`, and does not change exit code 0 by itself. A successful CLI inventory that does not confirm Chrome is also lower-priority evidence, not a runtime failure. If stronger evidence shows the plugin is visible or working, describe the CLI result as a verification or compatibility gap and do not recommend reinstalling the plugin or clearing caches. Consider repair only when the UI and live runtime also fail.
 
+When `--symptom chrome-plugin-unavailable` is selected for a third-party Responses provider, inspect the selected model's actual `supports_search_tool` value near the front of Chrome/plugin troubleshooting. `false` is the primary static compatibility suspect because it may cause or accompany tool-capability incompatibility; it is not proof of a unique root cause and is not, by itself, an instruction to flip the field. `true` means this specific static field does not explain the symptom, so continue with Settings, plugin inventory, authorization, and live-smoke evidence. This early check does not change the evidence ranking above: a real invocation remains stronger than static configuration. Never infer or modify top-level `web_search`, and never recommend reinstalling a plugin merely because the CLI inventory probe failed.
+
 When the dated DeepSeek rule is selected, report all three field assessments. Treat `supports_search_tool = false` and `use_responses_lite = false` as the case values for the selected third-party DeepSeek Responses model. Treat `tool_mode = direct` as `review_if_symptomatic`: if `code_mode_only` already exposes the required direct tools, do not present a change as mandatory. Never infer that top-level `web_search` should be disabled.
 
 Lead with actionable errors and warnings. Put the selected compatibility mismatch ahead of plaintext-token risk, acknowledged authentication intent, and plugin CLI verification gaps. Do not present acknowledged intent or an unverified CLI probe as the most likely cause.
@@ -68,4 +72,4 @@ If the bundled entry point cannot run, read [`prompts/agent-doctor.zh-CN.md`](pr
 - Never read task titles, messages, previews, rollout content, or dynamic tool schemas.
 - Never edit `config.toml`, a model catalog JSON, plugin state, login state, or a task database during diagnosis.
 - Never repair history Provider bindings automatically.
-- When the user asks for a fix, first show the exact target, backup plan, and field-level diff. Obtain explicit confirmation before any write. Treat database repair as a separate high-risk operation.
+- When the user asks for a fix, first show the exact target, backup plan, and field-level diff. Obtain explicit confirmation before any write. Treat database repair as a separate high-risk operation; back up the exact database plus its WAL/SHM sidecars before any future write.

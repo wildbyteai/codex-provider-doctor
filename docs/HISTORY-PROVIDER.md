@@ -8,6 +8,23 @@ In Codex builds or surfaces that filter task inventory by Provider, those rows m
 
 This is based on observed local database structure and behavior. It is not an official guarantee that every Codex version or surface applies the same filter.
 
+## Recording a user-confirmed root cause
+
+The automatic probe must keep the conservative wording above unless the user explicitly confirms the causal conclusion for the current incident. After the read-only report finds unarchived rows bound to another Provider, the agent may rerun with:
+
+```shell
+codex-provider-doctor --confirm-cause history.provider_mismatch
+```
+
+This changes only the report semantics:
+
+- the finding remains a warning because the mismatch is still unresolved;
+- its status becomes `confirmed` and the human summary says `Confirmed root cause`;
+- the report states that the probe proves the Provider-binding mismatch, while the causal conclusion comes from the user's confirmation for this incident;
+- no task row, database, rollout file, or Provider setting is changed.
+
+Without that explicit confirmation, the doctor continues to say that Provider-filtered builds *may* hide the affected tasks. It must not promote static local evidence into a universal Codex behavior.
+
 ## What the doctor checks
 
 The tool does not assume the database is named `state_5.sqlite`.
@@ -57,7 +74,7 @@ Any future migration command must, at minimum:
 
 1. Require the user to quit every Codex or ChatGPT desktop process using the database.
 2. Resolve the exact active database by schema, not filename alone.
-3. Back up the database, `-wal`, `-shm`, and relevant session/rollout directories.
+3. Back up the exact database plus its WAL/SHM sidecars (`-wal` and `-shm`) and relevant session/rollout directories.
 4. Show a dry-run count grouped by old Provider, current Provider, archived state, and task source.
 5. Require a second confirmation naming the old and new Provider IDs and the expected row count.
 6. Run a single scoped transaction, never an unqualified update.

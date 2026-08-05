@@ -19,6 +19,7 @@ README_ZH = REPO_ROOT / "README.zh-CN.md"
 README_EN = REPO_ROOT / "README.md"
 COMPATIBILITY_DOC = REPO_ROOT / "docs" / "COMPATIBILITY.md"
 HISTORY_DOC = REPO_ROOT / "docs" / "HISTORY-PROVIDER.md"
+AGENT_PROMPT = REPO_ROOT / "prompts" / "agent-doctor.zh-CN.md"
 
 
 class SkillEntrypointTests(unittest.TestCase):
@@ -52,16 +53,27 @@ class SkillEntrypointTests(unittest.TestCase):
         readme_en = README_EN.read_text(encoding="utf-8")
         compatibility = COMPATIBILITY_DOC.read_text(encoding="utf-8")
         history = HISTORY_DOC.read_text(encoding="utf-8")
+        prompt = AGENT_PROMPT.read_text(encoding="utf-8")
 
         acknowledgement = "--acknowledge provider.auth.openai_with_direct_token"
+        chrome_symptom = "--symptom chrome-plugin-unavailable"
+        confirmed_history_cause = "--confirm-cause history.provider_mismatch"
         self.assertIn(acknowledgement, skill_text)
         self.assertIn(acknowledgement, readme_zh)
         self.assertIn(acknowledgement, readme_en)
+        self.assertIn(acknowledgement, prompt)
+        for text in (skill_text, readme_zh, readme_en, compatibility, prompt):
+            self.assertIn(chrome_symptom, text)
+        for text in (skill_text, readme_zh, readme_en, history, prompt):
+            self.assertIn(confirmed_history_cause, text)
         self.assertIn("Catalog model count", readme_en)
         self.assertIn("模型目录条目总数", readme_zh)
         self.assertIn("official model", compatibility)
         self.assertIn("review_if_symptomatic", compatibility)
+        self.assertIn("primary static compatibility suspect", compatibility)
+        self.assertIn("not a unique root cause", compatibility)
         self.assertIn("provider_counts", history)
+        self.assertIn("database plus its WAL/SHM sidecars", history)
 
     def test_readme_install_prompt_only_requires_the_repository_url(self) -> None:
         readme_zh = README_ZH.read_text(encoding="utf-8")

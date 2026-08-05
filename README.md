@@ -30,6 +30,7 @@ Codex handles the repository path, Skill name, and installer arguments. If the c
 - Relative catalog paths, resolved from the config file that declared the winning value.
 - The active `model` and its exact `models[].slug` match.
 - Model display metadata, `tool_mode`, `supports_search_tool`, `use_responses_lite`, context window, and compact limits.
+- Symptom-aware Chrome compatibility triage for any selected third-party Responses model, including a safe `supports_search_tool = false` versus `true` comparison.
 - Provider authentication conflicts involving `requires_openai_auth`, `env_key`, command authentication, or a direct bearer token, with acknowledged intent kept separate from security risk.
 - Official Codex login state plus a plugin count and exact Chrome status when the redacted, read-only CLI probe succeeds; otherwise the inventory remains explicitly unverified. Other plugin names are not reported.
 - Chrome installation and enablement signals, followed by a manual acceptance checklist.
@@ -54,6 +55,8 @@ The CLI plugin probe is one evidence source, not the final authority on runtime 
 4. Static configuration and manual inference.
 
 If the CLI command fails or returns an unsupported format, the plugin inventory is `unverified`. The finding is informational and does not change exit code `0` by itself. A successful CLI inventory that does not confirm Chrome is also lower-priority evidence, not proof of a runtime failure. Do not reinstall plugins or clear caches when the UI or a live invocation already works; consider repair only when those stronger checks also fail.
+
+When the user explicitly reports that Chrome is unavailable under a third-party model, add `--symptom chrome-plugin-unavailable`. For a third-party Responses provider, `supports_search_tool = false` becomes the primary static compatibility suspect because it may cause or accompany tool-capability incompatibility; it is not proof of a unique root cause and does not automatically mean the field should be changed. A `true` value rules down this specific static suspect and sends the investigation back to Settings, authorization, plugin inventory, and live invocation. The tool never infers or edits top-level `web_search` from this check.
 
 ## Safety model
 
@@ -108,6 +111,20 @@ codex-provider-doctor \
   --acknowledge provider.auth.openai_with_direct_token
 ```
 
+When Chrome is explicitly reported unavailable under a third-party model, add the symptom without changing any field:
+
+```shell
+codex-provider-doctor \
+  --symptom chrome-plugin-unavailable
+```
+
+After the read-only report finds mismatched history Provider bindings, record a causal conclusion only when the user explicitly confirms it for the current incident:
+
+```shell
+codex-provider-doctor \
+  --confirm-cause history.provider_mismatch
+```
+
 Compare the selected model with one dated compatibility case:
 
 ```shell
@@ -139,19 +156,23 @@ The report evaluates all three fields, but it does not treat them identically:
 
 `requires_openai_auth = true` means that the selected provider uses OpenAI authentication. Codex then ignores that provider's `env_key`. It is not a general switch for preserving an official ChatGPT login while another provider uses its own API key.
 
-Some observed setups combine `requires_openai_auth = true` with `experimental_bearer_token` to keep the official sign-in surface while supplying an explicit token for provider requests. The doctor reports the combination as `info` / `unverified` until the user confirms the intent. After explicit confirmation, pass `--acknowledge provider.auth.openai_with_direct_token`; the finding becomes acknowledged and intentional instead of a suspected root cause. The independent plaintext-token warning remains.
+Some observed setups retain official sign-in as a separate state while third-party Provider requests use `experimental_bearer_token`, with `requires_openai_auth = true` kept as a version-sensitive compatibility field. The user's intent can be to retain access to official plugin capabilities, but actual plugin availability still needs separate runtime verification. The doctor reports this combination as `info` / `unverified` until the user confirms the intent; it does not describe `requires_openai_auth` itself as the login-retention mechanism. After explicit confirmation, pass `--acknowledge provider.auth.openai_with_direct_token`; the finding becomes acknowledged and intentional instead of a fault hypothesis. The independent plaintext-token warning remains.
 
 Diagnose these independently:
 
 1. Official Codex sign-in: `codex login status`.
-2. Third-party provider credentials: the active `[model_providers.<id>]` block.
-3. Plugin, connector, MCP, and Chrome installation or authorization.
+2. Third-party provider request authentication: the active `[model_providers.<id>]` block.
+3. Plaintext-token risk: whether `experimental_bearer_token` is stored directly in configuration, regardless of acknowledged intent.
+
+Plugin, connector, MCP, and Chrome installation or authorization are a separate runtime capability check after those three authentication questions.
 
 ## Why older tasks can disappear
 
 The doctor looks for a compatible local database by schema, not by a hard-coded filename. It reports aggregate counts for every stored `model_provider`: total, unarchived, and archived. If unarchived rows use a different provider, it also explains why provider-filtered builds may not show them.
 
 This is an observed local implementation detail, not a promise that every Codex version filters history the same way. See [History and provider bindings](docs/HISTORY-PROVIDER.md) before considering any database repair.
+
+Without explicit user confirmation, that wording remains causal-neutral. If the user confirms that the mismatch caused the current visibility problem, `--confirm-cause history.provider_mismatch` marks the finding as a confirmed root cause while leaving the database read-only. Any future repair still requires a separate confirmation and a backup of the exact database plus its WAL/SHM sidecars.
 
 ## Use with the built-in doctor
 
@@ -168,11 +189,11 @@ Then use this project for provider-specific catalog resolution, compatibility me
 `schema_version` remains `1`. Existing top-level fields and the plugin `probe` value are retained. This update adds fields rather than exposing raw evidence:
 
 - Every finding now has `severity`, `status`, `category`, and `intentional`.
-- Summary adds `info`, `unverified`, `acknowledged`, and `intentional` counts.
+- Summary adds `info`, `unverified`, `acknowledged`, `confirmed_causes`, and `intentional` counts.
 - Plugin reports add `inventory_status`; command failure, invalid JSON, or an unsupported JSON shape remains `probe: "failed"` with an honestly `unverified` inventory.
 - Catalog reports add `model_count`.
 - History reports add `provider_counts`.
-- Compatibility reports add `field_assessments` and `observed_differences`. `suggested_changes` now excludes a symptom-only `tool_mode` difference.
+- Compatibility reports add `symptom_assessments` for general Chrome triage plus `field_assessments` and `observed_differences` for selected dated rules. `suggested_changes` excludes symptom-only observations.
 - JSON findings keep diagnostic generation order for compatibility. Priority sorting is applied only when rendering the human-readable report.
 
 Exit codes still depend only on errors and warnings: `0` for neither, `1` for warnings, `2` for errors, and `3` when the doctor cannot finish safely.

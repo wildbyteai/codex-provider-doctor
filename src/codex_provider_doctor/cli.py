@@ -27,6 +27,8 @@ from codex_provider_doctor.report import (
 
 
 ACKNOWLEDGEABLE_FINDINGS = ("provider.auth.openai_with_direct_token",)
+CONFIRMABLE_CAUSES = ("history.provider_mismatch",)
+REPORTABLE_SYMPTOMS = ("chrome-plugin-unavailable",)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -41,6 +43,13 @@ def _parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
     )
+    parser.add_argument(
+        "--symptom",
+        choices=REPORTABLE_SYMPTOMS,
+        action="append",
+        default=[],
+        help="Add an explicitly reported runtime symptom to static compatibility triage.",
+    )
     parser.add_argument("--no-command-checks", action="store_true")
     parser.add_argument(
         "--acknowledge",
@@ -48,6 +57,13 @@ def _parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         help="Record an explicitly confirmed diagnostic intent without hiding separate risks.",
+    )
+    parser.add_argument(
+        "--confirm-cause",
+        choices=CONFIRMABLE_CAUSES,
+        action="append",
+        default=[],
+        help="Record a user-confirmed root cause without changing the underlying read-only finding.",
     )
     parser.add_argument("-c", "--config", dest="config_overrides", action="append", default=[])
     parser.add_argument("--lang", choices=["zh-CN", "en"], default="zh-CN")
@@ -82,6 +98,7 @@ def _execute(args: argparse.Namespace) -> int:
     runtime = runtime_report(command_checks, codex_binary, findings)
     compatibility = compatibility_report(
         args.compat_rule,
+        args.symptom,
         selected_model,
         provider,
         runtime["codex_version"],
@@ -96,13 +113,17 @@ def _execute(args: argparse.Namespace) -> int:
     )
     auth = auth_report(config, codex_home, command_checks, codex_binary, findings)
     plugins = plugins_report(config, command_checks, codex_binary, findings)
-    history = history_report(config, codex_home, findings)
+    history = history_report(config, codex_home, findings, set(args.confirm_cause))
 
     error_count = sum(item["severity"] == "error" for item in findings)
     warning_count = sum(item["severity"] == "warning" for item in findings)
     info_count = sum(item["severity"] == "info" for item in findings)
     unverified_count = sum(item["status"] == "unverified" for item in findings)
     acknowledged_count = sum(item["status"] == "acknowledged" for item in findings)
+    confirmed_cause_count = sum(
+        item["status"] == "confirmed" and item["category"] == "diagnostic"
+        for item in findings
+    )
     intentional_count = sum(item["intentional"] is True for item in findings)
     status = "error" if error_count else "warning" if warning_count else "ok"
     report = {
@@ -133,6 +154,7 @@ def _execute(args: argparse.Namespace) -> int:
             "info": info_count,
             "unverified": unverified_count,
             "acknowledged": acknowledged_count,
+            "confirmed_causes": confirmed_cause_count,
             "intentional": intentional_count,
         },
     }
@@ -171,6 +193,7 @@ def main(argv: list[str] | None = None) -> int:
                         "info": 0,
                         "unverified": 0,
                         "acknowledged": 0,
+                        "confirmed_causes": 0,
                         "intentional": 0,
                     },
                     "tool_error": {

@@ -2,6 +2,24 @@
 
 Compatibility advice must be tied to an observed version and interface combination. It must never become a silent default for every third-party provider.
 
+## General Chrome symptom triage
+
+When the user explicitly reports that Chrome is unavailable under a third-party model, run:
+
+```shell
+codex-provider-doctor --symptom chrome-plugin-unavailable
+```
+
+This check applies to any selected third-party `responses` provider; it is not limited to DeepSeek or to a dated compatibility rule. It reads the selected catalog entry's actual `supports_search_tool` value:
+
+- `false`: report a **primary static compatibility suspect**. The field may cause or accompany tool-capability incompatibility, but it is **not a unique root cause**, does not prove causality, and does not automatically imply a change to `true`.
+- `true`: this specific static field does not point to the reported symptom. Continue with Settings or Plugins visibility, connector authorization, the CLI inventory, and a live smoke test.
+- missing or non-Boolean: report that the static field is unavailable and keep the runtime cause unverified.
+
+The JSON report records this under `compatibility.symptom_assessments`. It deliberately provides no `suggested_changes`: the doctor distinguishes static catalog evidence, plugin-inventory evidence, and a real invocation. A live smoke test remains stronger than static configuration. Never infer or change top-level `web_search`, and never recommend reinstalling a plugin merely because `codex plugin list --json` failed.
+
+This general symptom triage is independent of the dated rule below. A dated case can describe an observed field combination without proving that the same values fix the current Chrome symptom.
+
 ## `deepseek-direct-tools-2026-08-03`
 
 Observed scope:

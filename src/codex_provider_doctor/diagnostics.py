@@ -262,6 +262,9 @@ def provider_report(
             "status": "acknowledged" if intent_acknowledged else "unverified",
             "intentional": True if intent_acknowledged else None,
             "acknowledgement_code": intent_code,
+            "official_login_state": "separate_auth_report",
+            "provider_request_authentication": "explicit_bearer_token_configured",
+            "plaintext_token_risk": "independent_warning",
         }
         findings.append(
             finding(
@@ -269,12 +272,12 @@ def provider_report(
                 "info",
                 "认证组合已确认为有意" if intent_acknowledged else "认证组合意图尚未确认",
                 (
-                    "用户已明确确认：保留官方 ChatGPT/Codex 登录入口，同时让第三方 Provider 请求使用显式 Token。这仍是依赖具体 Codex 版本和实现的兼容配置，不是通用安全默认。"
+                    "用户已明确确认设计意图：官方 ChatGPT/Codex 登录状态独立保留，第三方 Provider 请求使用显式 Token，以继续使用官方插件能力；插件是否真实可用仍需独立验证。requires_openai_auth 仍是 Provider 请求认证字段，不等于保留官方登录状态的开关；这组配置依赖具体 Codex 版本和实现，不是通用安全默认。"
                     if intent_acknowledged
-                    else "这种组合可能用于保留官方登录入口，同时给第三方 Provider 请求提供显式 Token；当前只能确认配置存在，不能推断用户意图。"
+                    else "当前只能确认配置中同时存在 OpenAI 认证字段和显式 Provider Token，不能推断用户意图。官方登录状态必须独立检查；requires_openai_auth 不是保留官方登录状态的通用开关。"
                 ),
                 (
-                    "按已确认意图保留当前行为，并在升级 Codex 后重新验证登录、模型请求、Skill 和插件；不要把这项继续列为当前故障的首要根因。"
+                    "按已确认意图保留当前行为，并分别验证官方登录、第三方模型请求、Skill 和插件；配置文件明文 Token 风险继续作为独立警告处理，不要把已确认意图列为当前故障根因。"
                     if intent_acknowledged
                     else "只有用户明确确认该设计意图后，才使用 --acknowledge provider.auth.openai_with_direct_token 记录确认；在此之前不要自动删除任一字段。"
                 ),
@@ -301,7 +304,7 @@ def provider_report(
         )
     if direct_token_configured:
         remedy = (
-            "如果这组配置用于同时保留官方登录和第三方请求 Token，先保持行为不变并做版本化验证；随后优先迁移到不把 Token 明文写进配置的凭据方案，并轮换旧 Token。"
+            "如果已确认官方登录状态独立保留、第三方 Provider 请求使用显式 Token，先保持行为不变并做版本化验证；随后优先迁移到不把 Token 明文写进配置的凭据方案，并轮换旧 Token。"
             if requires_openai_auth
             else "优先改用 env_key 或命令凭据助手，并轮换已经写入明文配置的 Token。"
         )
@@ -335,11 +338,68 @@ def provider_report(
 
 def compatibility_report(
     rule_ids: list[str],
+    symptom_ids: list[str],
     selected_model: dict[str, Any] | None,
     provider: dict[str, Any],
     codex_version: str | None,
     findings: list[Finding],
 ) -> dict[str, Any]:
+    symptom_assessments: list[dict[str, Any]] = []
+    for symptom_id in symptom_ids:
+        if symptom_id != "chrome-plugin-unavailable":
+            continue
+        built_in_openai = (
+            provider.get("id") == "openai"
+            and provider.get("name") == "OpenAI (built-in)"
+        )
+        if built_in_openai:
+            applicability_reason = "built_in_openai_provider"
+        elif provider.get("exists") is not True:
+            applicability_reason = "provider_missing"
+        elif provider.get("wire_api") != "responses":
+            applicability_reason = "provider_wire_api_not_responses"
+        elif selected_model is None:
+            applicability_reason = "selected_model_unavailable"
+        else:
+            applicability_reason = None
+        applicable = applicability_reason is None
+        observed = selected_model.get("supports_search_tool") if applicable and selected_model else None
+        if not applicable:
+            assessment = "not_applicable"
+            next_step = "continue_provider_specific_checks"
+        elif observed is False:
+            assessment = "primary_static_compatibility_suspect"
+            next_step = "compare_static_field_with_live_and_plugin_evidence"
+        elif observed is True:
+            assessment = "not_indicated_by_static_field"
+            next_step = "continue_plugin_and_live_checks"
+        else:
+            assessment = "field_unavailable"
+            next_step = "verify_catalog_field_and_runtime"
+        symptom_assessments.append(
+            {
+                "id": symptom_id,
+                "applicability": "applicable" if applicable else "not_applicable",
+                "applicability_reason": applicability_reason,
+                "evidence_source": "catalog.selected_model.supports_search_tool",
+                "observed_supports_search_tool": observed,
+                "assessment": assessment,
+                "causality": "not_proven",
+                "live_smoke_test": "not_run_by_doctor",
+                "next_step": next_step,
+            }
+        )
+        if applicable and observed is False:
+            findings.append(
+                finding(
+                    "compat.chrome.supports_search_tool_false",
+                    "warning",
+                    "Chrome 不可用的首要静态兼容性疑点：supports_search_tool = false",
+                    "用户报告 Chrome 插件不可用，且活动第三方 Responses 模型目录条目的 supports_search_tool 为 false；这是当前首要静态兼容性疑点，应放在排查前部。这个字段可能导致或伴随工具能力不兼容，但不能证明它是唯一根因。",
+                    "先分别核对真实调用烟雾测试、Settings/Plugins 页面和 CLI 清单证据；不要修改顶层 web_search，也不要仅因 CLI 插件清单失败而重装插件。模型目录如需试改，先备份并逐项测试 Chrome、Web Search 和其他插件。",
+                )
+            )
+
     rules: list[dict[str, Any]] = []
     for rule_id in rule_ids:
         if rule_id != "deepseek-direct-tools-2026-08-03":
@@ -437,7 +497,7 @@ def compatibility_report(
                     "把旧规则当作排错线索，不要当永久默认；在当前版本重新测试 Chrome、Web Search 和其他插件。",
                 )
             )
-    return {"rules": rules}
+    return {"rules": rules, "symptom_assessments": symptom_assessments}
 
 
 def compact_report(
@@ -827,7 +887,9 @@ def history_report(
     config: dict[str, Any],
     codex_home: Path,
     findings: list[Finding],
+    confirmed_causes: set[str] | None = None,
 ) -> dict[str, Any]:
+    confirmed_causes = confirmed_causes or set()
     current_provider = config.get("model_provider", "openai")
     empty_report: dict[str, Any] = {
         "probe": "not_found",
@@ -918,13 +980,28 @@ def history_report(
             ],
         }
         if active_other_count:
+            finding_code = "history.provider_mismatch"
+            cause_confirmed = finding_code in confirmed_causes
             findings.append(
                 finding(
-                    "history.provider_mismatch",
+                    finding_code,
                     "warning",
-                    "部分历史任务仍绑定其他 Provider",
-                    f"只读检查发现 {active_other_count} 个未归档任务的 model_provider 与当前 Provider 不同；在会按 Provider 过滤任务的版本中，它们可能不出现在当前列表里。",
-                    "先确认任务文件仍在，再完整备份数据库和 WAL/SHM 旁路文件。首版只解释和统计，不会自动更新任何任务记录。",
+                    (
+                        "历史任务不可见的根因已由用户确认"
+                        if cause_confirmed
+                        else "部分历史任务仍绑定其他 Provider"
+                    ),
+                    (
+                        f"用户已明确确认：这 {active_other_count} 个未归档任务的 model_provider 与当前 Provider 不一致，就是本次历史任务不可见的根因。自动检查本身只证明绑定差异；根因结论来自用户对本次现象的确认。"
+                        if cause_confirmed
+                        else f"只读检查发现 {active_other_count} 个未归档任务的 model_provider 与当前 Provider 不同；在会按 Provider 过滤任务的版本中，它们可能不出现在当前列表里。"
+                    ),
+                    (
+                        "保持数据库只读。任何未来修复都必须先退出相关 Codex 进程，完整备份数据库及 WAL/SHM 旁路文件，展示精确行数和字段 diff，并再次取得明确确认。"
+                        if cause_confirmed
+                        else "先确认任务文件仍在，再完整备份数据库和 WAL/SHM 旁路文件。首版只解释和统计，不会自动更新任何任务记录。"
+                    ),
+                    status="confirmed" if cause_confirmed else "open",
                 )
             )
         return report

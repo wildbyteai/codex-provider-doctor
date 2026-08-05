@@ -28,8 +28,8 @@ ENGLISH_FINDINGS: dict[str, tuple[str, str, str]] = {
     ),
     "provider.auth.openai_with_direct_token": (
         "The authentication combination intent is unverified",
-        "The configuration can preserve the official sign-in surface while supplying an explicit token for third-party provider requests, but the doctor cannot infer user intent.",
-        "Only after explicit user confirmation, record the intent with --acknowledge provider.auth.openai_with_direct_token. Do not remove either field automatically.",
+        "The configuration contains an OpenAI-authentication field plus an explicit third-party Provider token, but the doctor cannot infer user intent. Official sign-in state is diagnosed separately, and requires_openai_auth is not an official-login retention switch.",
+        "Only after explicit user confirmation, record the intent with --acknowledge provider.auth.openai_with_direct_token. Do not remove either field automatically, and keep plaintext-token risk as a separate warning.",
     ),
     "provider.auth.requires_openai_auth_misplaced": (
         "requires_openai_auth is in the wrong table",
@@ -85,6 +85,11 @@ ENGLISH_FINDINGS: dict[str, tuple[str, str, str]] = {
         "The third-party Responses model differs on fields that need attention",
         "The selected dated case recommends changing supports_search_tool or use_responses_lite. tool_mode is reviewed only when direct tools, skills, or Chrome show symptoms.",
         "Back up the catalog, review suggested_changes, and do not disable top-level web_search because of supports_search_tool. Restart Codex and test each tool surface separately after any edit.",
+    ),
+    "compat.chrome.supports_search_tool_false": (
+        "Primary static Chrome compatibility suspect: supports_search_tool = false",
+        "The user reported that Chrome is unavailable, and the selected third-party Responses model has supports_search_tool set to false. This field belongs near the front of compatibility triage because it may cause or accompany tool-capability incompatibility, but it does not prove a unique root cause.",
+        "Compare a live smoke test, the Settings or Plugins page, and the CLI inventory as separate evidence. Do not change top-level web_search, and do not reinstall plugins merely because the CLI inventory probe failed. Back up the catalog before any controlled field experiment.",
     ),
     "compat.rule_version_differs": (
         "The selected compatibility rule was observed on a different Codex version",
@@ -263,17 +268,28 @@ def localize_report(report: dict[str, Any], language: str) -> dict[str, Any]:
         ):
             item["title"] = "The authentication combination is acknowledged as intentional"
             item["message"] = (
-                "The user explicitly confirmed that official ChatGPT/Codex sign-in should remain available while third-party provider requests use an explicit token. This is version-sensitive compatibility behavior, not a universal secure default."
+                "The user explicitly confirmed the design intent: official ChatGPT/Codex sign-in remains available as a separate state while third-party provider requests use an explicit token, so official plugin capabilities can continue to be used. Actual plugin availability still requires separate runtime verification. requires_openai_auth is a provider-request authentication field, not an official-login retention switch. This is version-sensitive compatibility behavior, not a universal secure default."
             )
             item["remedy"] = (
-                "Preserve the acknowledged behavior, re-test sign-in, model requests, skills, and plugins after Codex upgrades, and do not keep presenting this intent as the primary fault cause."
+                "Preserve the acknowledged behavior, test official sign-in and third-party model requests separately, keep the plaintext-token risk as an independent warning, and do not present the acknowledged intent as a fault cause."
+            )
+        if (
+            item["code"] == "history.provider_mismatch"
+            and item.get("status") == "confirmed"
+        ):
+            item["title"] = "The history visibility root cause is user-confirmed"
+            item["message"] = (
+                "The user explicitly confirmed that the unarchived threads bound to another provider caused the current history-visibility problem. The automatic probe proves the binding mismatch; the causal conclusion comes from the user's confirmation for this incident."
+            )
+            item["remedy"] = (
+                "Keep the database read-only. Any future repair must first stop relevant Codex processes, back up the database plus WAL/SHM sidecars, show the exact row count and field diff, and obtain a separate explicit confirmation."
             )
         if (
             item["code"] == "provider.auth.direct_token"
             and report["provider"].get("requires_openai_auth") is True
         ):
             item["remedy"] = (
-                "If this setup intentionally keeps official sign-in while supplying a third-party request token, preserve behavior until you finish version-specific tests. Then migrate to a credential method that does not store the token in plaintext and rotate the old token."
+                "If official sign-in is intentionally retained as a separate state while third-party requests use an explicit token, preserve behavior until version-specific tests finish. Then migrate to a credential method that does not store the token in plaintext and rotate the old token."
             )
     for check in report["manual_checks"]:
         translated = ENGLISH_MANUAL_CHECKS.get(check["code"])
@@ -303,21 +319,25 @@ def _layer_state(layer: dict[str, Any], language: str) -> str:
 def _finding_sort_key(item: dict[str, Any]) -> int:
     if item.get("severity") == "error":
         return 0
-    if item.get("code") == "compat.deepseek_direct_tools.mismatch":
+    if item.get("status") == "confirmed" and item.get("category") == "diagnostic":
         return 1
-    if item.get("severity") == "warning" and item.get("category") == "diagnostic":
+    if item.get("code") == "compat.chrome.supports_search_tool_false":
         return 2
-    if item.get("severity") == "warning" and item.get("category") == "security":
+    if item.get("code") == "compat.deepseek_direct_tools.mismatch":
         return 3
-    if item.get("severity") == "warning":
+    if item.get("severity") == "warning" and item.get("category") == "diagnostic":
         return 4
-    if item.get("status") == "acknowledged":
+    if item.get("severity") == "warning" and item.get("category") == "security":
         return 5
-    if item.get("category") == "intent":
+    if item.get("severity") == "warning":
         return 6
-    if item.get("category") == "verification":
+    if item.get("status") == "acknowledged":
         return 7
-    return 8
+    if item.get("category") == "intent":
+        return 8
+    if item.get("category") == "verification":
+        return 9
+    return 10
 
 
 def _compatibility_reason(reason: Any, language: str) -> str:
@@ -341,6 +361,25 @@ def _compatibility_reason(reason: Any, language: str) -> str:
     return labels[language].get(str(reason), fallback)
 
 
+def _symptom_assessment_label(assessment: Any, language: str) -> str:
+    labels = {
+        "en": {
+            "primary_static_compatibility_suspect": "primary static compatibility suspect",
+            "not_indicated_by_static_field": "not indicated by this static field",
+            "field_unavailable": "the catalog field is unavailable",
+            "not_applicable": "not applicable to the selected model or provider",
+        },
+        "zh-CN": {
+            "primary_static_compatibility_suspect": "首要静态兼容性疑点",
+            "not_indicated_by_static_field": "该静态字段未指向兼容性问题",
+            "field_unavailable": "模型目录字段不可用",
+            "not_applicable": "不适用于当前模型或 Provider",
+        },
+    }
+    fallback = "unknown" if language == "en" else "未知"
+    return labels[language].get(str(assessment), fallback)
+
+
 def _primary_diagnostic(findings: list[dict[str, Any]]) -> dict[str, Any] | None:
     return next(
         (
@@ -354,6 +393,8 @@ def _primary_diagnostic(findings: list[dict[str, Any]]) -> dict[str, Any] | None
 
 
 def _finding_label(item: dict[str, Any], language: str) -> str:
+    if item.get("status") == "confirmed" and item.get("category") == "diagnostic":
+        return "CONFIRMED ROOT CAUSE" if language == "en" else "已确认根因"
     if item.get("status") == "acknowledged" and item.get("intentional") is True:
         return "ACKNOWLEDGED/INTENTIONAL" if language == "en" else "已确认意图"
     if item.get("status") == "unverified":
@@ -374,6 +415,7 @@ def render_human(report: dict[str, Any], language: str) -> str:
     plugins = report["plugins"]
     compact = report["compact"]
     history = report["history"]
+    symptom_assessments = report["compatibility"].get("symptom_assessments", [])
     findings = sorted(report["findings"], key=_finding_sort_key)
     primary = _primary_diagnostic(findings)
     attention = [item for item in findings if item.get("severity") in {"error", "warning"}]
@@ -386,8 +428,14 @@ def render_human(report: dict[str, Any], language: str) -> str:
             [
                 f"Overall: {summary['status'].upper()}",
                 f"Errors: {summary['errors']}  Warnings: {summary['warnings']}  Info: {summary['info']}",
-                f"Unverified: {summary['unverified']}  Acknowledged: {summary['acknowledged']}  Intentional: {summary['intentional']}",
-                f"Primary diagnosis: {primary['title']}" if primary else "Primary diagnosis: no confirmed configuration fault was identified.",
+                f"Unverified: {summary['unverified']}  Acknowledged: {summary['acknowledged']}  Confirmed causes: {summary['confirmed_causes']}  Intentional: {summary['intentional']}",
+                (
+                    f"Confirmed root cause: {primary['title']}"
+                    if primary and primary.get("status") == "confirmed"
+                    else f"Primary diagnosis: {primary['title']}"
+                    if primary
+                    else "Primary diagnosis: no confirmed configuration fault was identified."
+                ),
                 "",
                 "Effective configuration",
                 f"- Model: {_value(effective['model'], '(not set)')}",
@@ -417,17 +465,20 @@ def render_human(report: dict[str, Any], language: str) -> str:
         lines.extend(
             [
                 "",
-                "Provider authentication",
+                "Provider request authentication",
                 f"- Endpoint host: {_value(provider['host'], '(built-in or not set)')}",
-                f"- requires_openai_auth: {_value(provider['requires_openai_auth'], '(not set)')}",
+                f"- requires_openai_auth: {_value(provider['requires_openai_auth'], '(not set)')} (provider-request field; not the official sign-in state)",
                 f"- env_key: {_value(provider['env_key'], '(not set)')}",
                 f"- env_key is set: {_value(provider['env_key_is_set'], '(not applicable)')}",
+                f"- Explicit bearer token: {'configured (value not read)' if provider['direct_bearer_token_configured'] else 'not configured'}",
                 f"- Authentication combination intent: {intent_value}",
                 "",
-                "Official login and plugins",
+                "Official ChatGPT/Codex sign-in state",
                 f"- Login method: {_value(auth['login_method'], auth['login_probe'])}",
                 f"- auth.json exists: {_value(auth['cache_exists'], '(unknown)')}",
                 "- auth.json contents: not read",
+                "",
+                "Plugins and Chrome",
                 f"- Plugin CLI probe: {plugins['probe']}",
                 f"- Plugin inventory status: {plugins.get('inventory_status', 'unverified')}",
                 f"- Plugin inventory count: {_value(plugins['inventory_count'], 'not available')}",
@@ -462,6 +513,19 @@ def render_human(report: dict[str, Any], language: str) -> str:
             lines.extend(["", "Selected catalog model"])
             for field in MODEL_REPORT_FIELDS:
                 lines.append(f"- {field}: {_value(catalog['selected_model'].get(field), '(not set)')}")
+        if symptom_assessments:
+            lines.extend(["", "Chrome / plugin compatibility triage"])
+            for assessment in symptom_assessments:
+                lines.extend(
+                    [
+                        "- Reported symptom: Chrome plugin unavailable",
+                        f"- supports_search_tool: {_value(assessment['observed_supports_search_tool'], '(unavailable)')}",
+                        f"- Assessment: {_symptom_assessment_label(assessment['assessment'], language)}",
+                        "- Evidence type: static model-catalog field",
+                        "- Live smoke test: not run by the doctor",
+                        "- Boundary: plugin inventory, Settings visibility, and live invocation remain separate evidence; this field alone does not prove a unique root cause.",
+                    ]
+                )
         if report["compatibility"]["rules"]:
             lines.extend(["", "Compatibility rules"])
             for rule in report["compatibility"]["rules"]:
@@ -506,8 +570,12 @@ def render_human(report: dict[str, Any], language: str) -> str:
     )
     if summary["info"]:
         conclusion += f"；另有 {summary['info']} 条信息（{summary['unverified']} 条未核验，{summary['acknowledged']} 条已确认意图）"
+    if summary["confirmed_causes"]:
+        conclusion += f"；已确认根因 {summary['confirmed_causes']} 项"
     primary_line = (
-        f"首要诊断：{primary['title']}"
+        f"已确认根因：{primary['title']}"
+        if primary and primary.get("status") == "confirmed"
+        else f"首要诊断：{primary['title']}"
         if primary
         else "首要诊断：未发现足以判定当前故障的配置证据。"
     )
@@ -544,17 +612,20 @@ def render_human(report: dict[str, Any], language: str) -> str:
     lines.extend(
         [
             "",
-            "Provider 认证",
+            "Provider 请求认证",
             f"- 接口主机：{_value(provider['host'], '内置或未设置')}",
-            f"- requires_openai_auth：{_value(provider['requires_openai_auth'], '未设置')}",
+            f"- requires_openai_auth：{_value(provider['requires_openai_auth'], '未设置')}（只描述 Provider 请求认证，不代表官方登录状态）",
             f"- env_key：{_value(provider['env_key'], '未设置')}",
             f"- env_key 是否已注入：{_value(provider['env_key_is_set'], '不适用')}",
+            f"- 显式 Bearer Token：{'已配置（值未读取）' if provider['direct_bearer_token_configured'] else '未配置'}",
             f"- 认证组合意图：{intent_value}",
             "",
-            "官方登录与插件",
+            "官方 ChatGPT/Codex 登录状态",
             f"- 登录方式：{_value(auth['login_method'], auth['login_probe'])}",
             f"- auth.json 是否存在：{_value(auth['cache_exists'], '未知')}",
             "- auth.json 内容：未读取",
+            "",
+            "插件与 Chrome",
             f"- 插件 CLI 探针：{plugins['probe']}",
             f"- 插件清单核验状态：{plugins.get('inventory_status', 'unverified')}",
             f"- 插件总数：{_value(plugins['inventory_count'], '不可用')}",
@@ -590,6 +661,19 @@ def render_human(report: dict[str, Any], language: str) -> str:
         lines.extend(["", "活动模型目录字段"])
         for field in MODEL_REPORT_FIELDS:
             lines.append(f"- {field}：{_value(catalog['selected_model'].get(field), '未设置')}")
+    if symptom_assessments:
+        lines.extend(["", "Chrome / 插件兼容性排查"])
+        for assessment in symptom_assessments:
+            lines.extend(
+                [
+                    "- 用户报告症状：Chrome 插件不可用",
+                    f"- supports_search_tool：{_value(assessment['observed_supports_search_tool'], '不可用')}",
+                    f"- 当前判断：{_symptom_assessment_label(assessment['assessment'], language)}",
+                    "- 证据类型：模型目录静态字段",
+                    "- 真实调用烟雾测试：诊断器未执行",
+                    "- 证据边界：插件清单、设置页面和真实调用必须分开核对；这个字段本身不能证明唯一根因。",
+                ]
+            )
     if report["compatibility"]["rules"]:
         lines.extend(["", "兼容规则"])
         for rule in report["compatibility"]["rules"]:

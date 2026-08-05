@@ -42,6 +42,7 @@ Skill 和命令行工具使用同一套诊断代码。Skill 不会全局安装 P
 - 相对路径按“声明这个值的配置文件所在目录”解析，不按猜测搜索。
 - 当前 `model` 是否能在 `models[].slug` 中唯一匹配。
 - `display_name`、`tool_mode`、`supports_search_tool`、`use_responses_lite` 和上下文窗口配置。
+- 面向一般第三方 Responses 模型的 Chrome 症状排查，并安全对照 `supports_search_tool = false` 与 `true`。
 - 活动 Provider 的 `requires_openai_auth`、`env_key`、命令认证和明文 Token 冲突，并把已确认意图与独立安全风险分开。
 - 官方 Codex 登录方式，以及 CLI 只读探针成功时的插件总数和 Chrome 开启状态；探针失败时明确保留为“未核验”，不会在报告里列出其他插件名称。
 - 历史任务按 `model_provider` 分组的总数、未归档数和已归档数。
@@ -57,19 +58,23 @@ CLI 插件探针只是一个证据来源，不是运行时状态的最终结论�
 
 如果 CLI 命令失败或返回当前工具不认识的格式，只能说明插件清单尚未核验。它会被记录为 `info / unverified`，单独出现时不会把退出码从 `0` 变成 `1`。即使 CLI 清单成功但没有确认 Chrome，也仍是低优先级辅助证据，不等于真实调用失败。设置页面或实际调用已经正常时，不要重装插件或清理缓存；只有这些更强证据也失败时，才继续考虑修复。
 
+如果用户明确报告“第三方模型下 Chrome 插件不可用”，诊断时增加 `--symptom chrome-plugin-unavailable`。当活动 Provider 是第三方 Responses 接口时，`supports_search_tool = false` 会被列为首要静态兼容性疑点：它可能导致或伴随工具能力不兼容，但不是唯一根因的证明，也不等于应该自动改成 `true`。如果值为 `true`，就降低这一字段的嫌疑，继续检查设置页面、授权、插件清单和真实调用。这个检查不会推断或修改顶层 `web_search`。
+
 ## 先记住一个最容易配错的地方
 
 `requires_openai_auth = true` 的意思是：这个 Provider 使用 OpenAI 认证。
 
 它不是“保留官方登录态”的通用开关。设置为 `true` 后，Codex 会忽略这个 Provider 的 `env_key`。
 
-也有人同时配置 `requires_openai_auth = true` 和 `experimental_bearer_token`，用来保留官方登录入口，同时给第三方 Provider 请求提供显式 Token。这种做法依赖具体版本，而且 Token 明文保存在配置里。工具会把它标成风险警告，不会直接当成必然错误，更不会自动删除字段。
+也有已观察到的设计把官方登录状态独立保留，同时让第三方 Provider 请求使用 `experimental_bearer_token`，并把 `requires_openai_auth = true` 作为版本敏感的兼容字段继续保留；用户意图可以是继续使用官方插件能力，但插件是否真实可用仍要单独做运行时验证。这里不能把 `requires_openai_auth` 本身解释成“保留官方登录态”的开关。这种做法依赖具体版本，而且 Token 明文保存在配置里；工具不会直接判成必然错误，也不会自动删除字段，但会继续保留独立风险 warning。
 
 所以要分开看三件事：
 
 1. Codex 官方登录态：运行 `codex login status`。
-2. 第三方 API 怎么认证：看活动 `[model_providers.<id>]`。
-3. Chrome、插件、连接器或 MCP 是否安装、开启并完成授权。
+2. 第三方 Provider 请求怎么认证：看活动 `[model_providers.<id>]`。
+3. 配置文件明文 Token 风险：无论设计意图是否已确认，只要直接保存 `experimental_bearer_token`，就继续保留独立 warning。
+
+Chrome、插件、连接器或 MCP 是否安装、开启并完成授权，属于认证之外的另一组运行时能力检查。
 
 如果用户已经明确确认这组认证组合就是有意设计，可以在诊断时记录该意图：
 
@@ -120,6 +125,20 @@ codex-provider-doctor --json
 codex-provider-doctor --profile work
 ```
 
+如果明确报告第三方模型下 Chrome 插件不可用：
+
+```shell
+codex-provider-doctor \
+  --symptom chrome-plugin-unavailable
+```
+
+如果只读报告已发现历史 Provider 绑定不一致，并且用户明确确认这就是本次历史任务不可见的根因：
+
+```shell
+codex-provider-doctor \
+  --confirm-cause history.provider_mismatch
+```
+
 如果你正在排查 DeepSeek 类第三方接口下的 Skill 或 Chrome 兼容问题，可以显式对比这条带版本边界的案例：
 
 ```shell
@@ -153,7 +172,9 @@ codex-provider-doctor \
 
 这个工具会只读统计每个 `model_provider` 的全部、未归档和已归档数量，不读取标题、消息、预览或正文，也不会批量更新数据库。
 
-数据库修复比改 JSON 风险高。必须先退出 Codex，同时备份主数据库、`-wal`、`-shm` 和任务文件，再做明确范围的事务更新。首版故意不提供一键修复。详细说明见 [历史任务与 Provider 绑定](docs/HISTORY-PROVIDER.md)。
+没有用户明确确认时，报告只说这些绑定差异“可能”导致 Provider 过滤后的列表不可见。用户确认本次因果关系后，`--confirm-cause history.provider_mismatch` 才会把它写成“已确认根因”；自动探针证明的是绑定差异，因果结论来自用户对本次现象的确认。
+
+数据库修复比改 JSON 风险高。必须先退出 Codex，同时备份准确的主数据库、`-wal`、`-shm` 和任务文件，展示精确行数与字段 diff，并再次取得明确确认后，才可能做范围受限的事务更新。首版故意不提供一键修复。详细说明见 [历史任务与 Provider 绑定](docs/HISTORY-PROVIDER.md)。
 
 ## 和官方 `codex doctor` 的关系
 
@@ -170,11 +191,11 @@ codex doctor
 `schema_version` 继续保持为 `1`，现有顶层字段与插件 `probe` 字段保留。本轮以新增字段为主：
 
 - 每条 finding 新增 `status`、`category` 和 `intentional`，并继续保留 `severity`。
-- summary 新增 `info`、`unverified`、`acknowledged` 和 `intentional` 计数。
+- summary 新增 `info`、`unverified`、`acknowledged`、`confirmed_causes` 和 `intentional` 计数。
 - 插件报告新增 `inventory_status`；命令失败、JSON 无效或 JSON 结构不受支持时，`probe` 保持为 `failed`，清单状态诚实地保持为 `unverified`。
 - 模型目录报告新增 `model_count`。
 - 历史任务报告新增 `provider_counts`。
-- 兼容规则新增 `field_assessments` 和 `observed_differences`；`suggested_changes` 不再包含只按症状核对的 `tool_mode` 差异。
+- 兼容报告新增一般 Chrome 排查使用的 `symptom_assessments`，以及带日期规则使用的 `field_assessments` 和 `observed_differences`；`suggested_changes` 不包含只按症状观察的字段。
 - JSON finding 数组保持诊断生成顺序；优先级排序只用于人类可读报告，不改变机器输出顺序。
 
 退出码仍只由 error 和 warning 决定：没有两者时为 `0`，有 warning 时为 `1`，有 error 时为 `2`，工具无法安全完成时为 `3`。

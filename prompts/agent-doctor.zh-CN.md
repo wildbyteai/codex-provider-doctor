@@ -57,6 +57,14 @@
 6. display_name 缺失或为空时，说明这会导致模型列表只显示 slug 或名称不清楚，但不要替我编造名称。
 7. 分开显示顶层 web_search 和模型条目的 supports_search_tool，不要把它们当成同一个参数。
 
+如果我明确报告“第三方模型下 Chrome 插件不可用”，先把活动模型目录条目的实际 `supports_search_tool` 放到兼容性排查前部：
+
+- 仅当当前是第三方 Responses Provider 时适用；不要限定为 DeepSeek。
+- `supports_search_tool = false` 时，标记为“首要静态兼容性疑点”：它可能导致或伴随工具能力不兼容，但不能据此断言为唯一根因，也不能直接推导出应该改成 `true`。
+- `supports_search_tool = true` 时，说明这个静态字段没有指向当前症状，继续检查设置页面、插件授权、CLI 清单和真实调用。
+- 把模型目录静态证据、插件清单证据和真实调用烟雾测试分开写；真实调用仍是更强证据。
+- 不要自动推断或修改顶层 `web_search`，也不要因为 CLI 插件清单探针失败就建议重装插件。
+
 如果我正在排查 2026-08-03 已观察到的 DeepSeek/第三方接口兼容案例，请只做差异对比：
 
 {
@@ -75,7 +83,7 @@
 4. requires_openai_auth = true 的准确含义是“这个 Provider 使用 OpenAI 认证”；此时 Codex 会忽略 env_key。
 5. 它不是“保留官方 ChatGPT 登录态”的通用开关。第三方接口使用自己的 API Key 时，通常应使用 env_key，并把官方登录态作为另一项独立检查。
 6. 明确冲突要报错：requires_openai_auth = true 时 env_key 会被忽略；env_key 和 experimental_bearer_token 会竞争 Provider Token；[model_providers.<id>.auth] 不能再和其他认证字段组合。
-7. requires_openai_auth = true 与 experimental_bearer_token 同时存在时，不要直接判成必然错误。说明它可能被用来保留官方登录入口，同时给 Provider 请求提供显式 Token，但这依赖具体 Codex 版本。用户尚未确认意图时标记为 info / unverified；用户明确确认后标记为 acknowledged / intentional，不再把它列为最可能根因。
+7. requires_openai_auth = true 与 experimental_bearer_token 同时存在时，不要直接判成必然错误。必须分开表达：官方 ChatGPT/Codex 登录状态独立检查；第三方 Provider 请求存在显式 Token；requires_openai_auth 仍是 Provider 请求认证字段，不是保留官方登录状态的通用开关。用户尚未确认意图时标记为 info / unverified；用户明确确认后标记为 acknowledged / intentional，不再把它列为故障根因。
 8. Token 明文存储必须作为独立 warning 保留，不能因为认证意图已确认而隐藏。
 9. 对 env_key 只检查当前启动环境中是否存在非空值，不读取或输出值。
 
@@ -102,14 +110,15 @@
 3. SQLite 必须用只读模式，并开启 query_only。
 4. 只统计：任务总数、绑定当前 Provider 的数量、绑定其他 Provider 的数量、其中未归档数量；并按每个 model_provider 给出全部、未归档和已归档数量。
 5. 不读取任务标题、消息、预览或正文。
-6. 如果存在未归档的其他 Provider 任务，说明：任务文件可能仍在，但在会按 Provider 过滤任务的版本里可能不显示。这是本地观察，不是所有 Codex 版本的官方保证。
-7. 本轮禁止 UPDATE、迁移、删除、VACUUM、覆盖数据库或复制 auth.json。
+6. 如果存在未归档的其他 Provider 任务，默认只说明：任务文件可能仍在，但在会按 Provider 过滤任务的版本里可能不显示。这是本地观察，不是所有 Codex 版本的官方保证。
+7. 只有用户明确确认“本次历史任务不可见就是由这些 Provider 绑定不一致造成”后，才把结论升级为“用户确认的根因”；同时写清自动探针证明的是绑定差异，因果确认来自用户对本次现象的确认。
+8. 本轮禁止 UPDATE、迁移、删除、VACUUM、覆盖数据库或复制 auth.json。任何未来修复都必须先退出相关进程，完整备份数据库及其 WAL/SHM 旁路文件，展示精确行数和字段 diff，并再次取得明确确认。
 
 八、输出报告
 
 请按下面结构输出：
 
-1. 总结：错误数、警告数、info 数、未核验数、已确认意图数，以及真正的首要诊断。
+1. 总结：错误数、警告数、info 数、未核验数、已确认意图数、已确认根因数；有用户确认根因时直接写“已确认根因”，否则只给证据支持的首要诊断。
 2. 生效配置层：每层是否存在、是否加载、关键来源。
 3. 模型目录：实际路径和活动模型字段。
 4. Provider 认证：官方登录和第三方认证分开写。
@@ -129,6 +138,14 @@ codex-provider-doctor --json
 如果我已经明确确认 requires_openai_auth = true 与 experimental_bearer_token 的组合就是有意设计，再加：
 
 --acknowledge provider.auth.openai_with_direct_token
+
+如果我明确报告第三方模型下 Chrome 插件不可用，再加：
+
+--symptom chrome-plugin-unavailable
+
+如果只读结果已发现历史 Provider 绑定不一致，并且我明确确认这就是本次历史任务不可见的根因，再加：
+
+--confirm-cause history.provider_mismatch
 
 如果 Codex 是用 Profile 启动的，必须同时传同一个 --profile。
 ```
