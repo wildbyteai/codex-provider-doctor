@@ -432,10 +432,10 @@ def _solution_status_label(status: Any, language: str) -> str:
             "plugin_features_disabled": "plugin features disabled",
             "skill_installation_not_found": "skill installation not found",
             "skill_installation_unverified": "skill installation only partially verified",
-            "direct_namespace_branch_runtime_unverified": "Direct namespace branch forced; Chrome exposure unverified",
-            "exposure_mode_runtime_unverified": "tool exposure mode requires runtime verification",
-            "remote_plugin_directory_disabled_runtime_unverified": "remote plugin directory disabled; Chrome impact unverified",
-            "runtime_verification_required": "runtime verification required",
+            "direct_namespace_branch_runtime_unverified": "Chrome availability needs a live check",
+            "exposure_mode_runtime_unverified": "Chrome availability needs a live check",
+            "remote_plugin_directory_disabled_runtime_unverified": "remote plugin directory is off; impact needs confirmation",
+            "runtime_verification_required": "live verification required",
         },
         "zh-CN": {
             "configured_with_security_warning": "配置正确；仍有安全警告",
@@ -457,41 +457,303 @@ def _solution_status_label(status: Any, language: str) -> str:
             "plugin_features_disabled": "插件能力被关闭",
             "skill_installation_not_found": "未发现本地 Skill",
             "skill_installation_unverified": "Skill 安装仅部分核验",
-            "direct_namespace_branch_runtime_unverified": "namespace 分支进入 Direct；Chrome 暴露待核验",
-            "exposure_mode_runtime_unverified": "工具暴露路径需运行时核验",
-            "remote_plugin_directory_disabled_runtime_unverified": "远程插件目录已关闭；对 Chrome 的影响待核验",
-            "runtime_verification_required": "需要运行时核验",
+            "direct_namespace_branch_runtime_unverified": "Chrome 是否可用待实际验证",
+            "exposure_mode_runtime_unverified": "Chrome 是否可用待实际验证",
+            "remote_plugin_directory_disabled_runtime_unverified": "远程插件目录已关闭；影响待确认",
+            "runtime_verification_required": "需要实际验证",
         },
     }
     return labels[language].get(str(status), str(status))
+
+
+SOLUTION_PRESENTATION: dict[str, dict[str, dict[str, Any]]] = {
+    "en": {
+        "keep-official-login": {
+            "controls": (
+                "Official account state: the Codex sign-in session.",
+                "Third-party request authentication: the active Provider ({provider_id}).",
+                "Credential-storage risk: separate from whether the official account stays signed in.",
+            ),
+            "goal": "Keep the official account signed in while third-party requests use the intended credential, with storage risk handled separately.",
+            "actions": (
+                "Keep or confirm the official sign-in; do not overwrite the login cache.",
+                "Use one request-authentication method on a custom third-party Provider; back up first if an existing method must be migrated.",
+                "Test official sign-in, one third-party request, and one official-plugin action separately.",
+            ),
+            "verification": "All three checks pass independently; one passing check does not prove the others.",
+        },
+        "plugins-or-skills-unavailable": {
+            "controls": (
+                "Skill installation: local Skill directories.",
+                "Official plugin availability: Plugins/Settings and App integration switches.",
+                "Actual use: connector authorization plus the tool list loaded into a new task.",
+            ),
+            "goal": "Skills remain installed, official plugins are enabled and authorized, and the expected tools appear in a new task.",
+            "actions": (
+                "Confirm the Skill installation and plugin enablement in the active Codex environment.",
+                "Complete connector authorization, restart Codex, and open a new task.",
+                "Run one real action before reinstalling plugins or clearing caches.",
+            ),
+            "verification": "The new task shows both the expected Skill and plugin tool, and one real invocation succeeds.",
+        },
+        "model-name-incorrect": {
+            "controls": (
+                "Catalog name: the active model entry for {model_slug}.",
+                "Windows picker label: the Desktop selector, which the doctor cannot observe automatically.",
+                "Actual routed model: the selected model and Provider plus a real request; the UI label is not proof.",
+            ),
+            "goal": "The catalog is correct, the request reaches the intended model, and Desktop shows the clearest label the current product supports.",
+            "actions": (
+                "Correct the catalog only when the selected model does not match one entry or its display name is blank.",
+                "When the catalog is already valid, stop editing JSON or clearing caches; use the config switcher, CLI, or separate Profiles.",
+                "Verify the actual model with a real request; treat an app patch as a separately approved experiment.",
+            ),
+            "verification": "Compare the catalog, App Server list, Desktop picker, and one real request separately.",
+        },
+        "history-missing": {
+            "controls": (
+                "Current task-list context: the active Provider ({current_provider}).",
+                "Stored task ownership: the Provider saved when each task was created.",
+                "Visibility: Provider filtering or an all-Provider view in the installed Codex build.",
+            ),
+            "goal": "Recover visibility without writing the task database; migrate bindings only as a separately approved last resort.",
+            "actions": (
+                "Confirm the active Codex home/Profile and the read-only Provider counts.",
+                "Switch to the stored Provider, use an all-Provider view, or update Codex before changing storage.",
+                "Only as a last resort, back up the database plus WAL/SHM and obtain another explicit confirmation.",
+            ),
+            "verification": "The visible task count matches the read-only aggregate after switching Provider or view.",
+        },
+        "chrome-unavailable": {
+            "controls": (
+                "App integration: feature switches and Plugins/Settings.",
+                "Model tool loading: selected-model capability metadata plus Codex tool-loading behavior.",
+                "Browser bridge: Chrome Profile, connector authorization, site rules, and the new-task tool list.",
+            ),
+            "goal": "The Chrome tool appears in a new task and one minimal real invocation succeeds.",
+            "actions": (
+                "Confirm App integration, plugin enablement, connector authorization, and the correct Chrome Profile.",
+                "Open a new task and check whether the Chrome tool is actually present.",
+                "Run one real Chrome action before reinstalling anything or changing unrelated search settings.",
+            ),
+            "verification": "The new-task tool list contains Chrome and one minimal smoke test succeeds.",
+        },
+    },
+    "zh-CN": {
+        "keep-official-login": {
+            "controls": (
+                "官方账号是否还登录：由 Codex 自身登录会话控制。",
+                "第三方接口请求用什么凭据：由当前 Provider（{provider_id}）控制。",
+                "凭据是否明文保存：这是独立安全风险，不等于官方登录状态。",
+            ),
+            "goal": "官方账号保持登录，第三方请求使用预期凭据，凭据存储风险单独处理。",
+            "actions": (
+                "保持或确认官方登录，不要覆盖登录缓存。",
+                "自定义第三方 Provider 只保留一种请求认证方式；已有方式需要迁移时先备份。",
+                "分别测试官方登录、一次第三方模型请求和一次官方插件调用。",
+            ),
+            "verification": "三项分别通过；其中一项成功不能代替另外两项。",
+        },
+        "plugins-or-skills-unavailable": {
+            "controls": (
+                "Skill 是否仍安装：由本地 Skill 目录控制。",
+                "官方插件是否可用：由 Plugins/Settings 和 App 集成开关控制。",
+                "是否真正能调用：由连接器授权和新任务加载到的工具列表控制。",
+            ),
+            "goal": "Skill 仍安装，官方插件已启用并授权，而且目标工具在新任务中实际出现。",
+            "actions": (
+                "确认当前 Codex 环境中的 Skill 安装和插件启用状态。",
+                "完成连接器授权，完全重启 Codex，并新建任务。",
+                "先做一次真实调用，再考虑重装插件或清缓存。",
+            ),
+            "verification": "新任务同时出现目标 Skill 和插件工具，并且一次真实调用成功。",
+        },
+        "model-name-incorrect": {
+            "controls": (
+                "模型目录中的基础名称：由当前模型 {model_slug} 对应的目录条目控制。",
+                "Windows 下拉框最终显示：由 Desktop 选择器控制，doctor 无法自动观察。",
+                "真正调用哪个模型：由当前模型、Provider 和真实请求共同确认；界面标签不能证明。",
+            ),
+            "goal": "模型目录正确、真实请求进入目标模型，Desktop 显示当前版本能支持的最清楚名称。",
+            "actions": (
+                "只有当前模型无法唯一匹配目录，或显示名称为空时，才修改模型目录。",
+                "目录已经正确时，不再改 JSON 或反复清缓存；使用配置切换器、CLI 或独立 Profile。",
+                "用真实请求确认实际模型；应用补丁只能作为另行确认的实验方案。",
+            ),
+            "verification": "分别核对模型目录、App Server 列表、Desktop 下拉框和一次真实请求。",
+        },
+        "history-missing": {
+            "controls": (
+                "当前任务列表环境：由当前 Provider（{current_provider}）控制。",
+                "历史任务属于哪个 Provider：由任务创建时保存的 Provider 绑定控制。",
+                "任务是否显示：由当前版本的 Provider 过滤或全部 Provider 视图控制。",
+            ),
+            "goal": "优先不写数据库就恢复可见性；只有最后确需迁移绑定时才单独确认。",
+            "actions": (
+                "确认当前 Codex 目录/Profile，以及只读统计到的 Provider 数量。",
+                "先切回旧 Provider、使用全部 Provider 视图或升级 Codex，不要先改数据库。",
+                "只有最后确需迁移时，才完整备份数据库及 WAL/SHM，并再次明确确认。",
+            ),
+            "verification": "切换 Provider 或视图后，可见任务数量与只读聚合数量一致。",
+        },
+        "chrome-unavailable": {
+            "controls": (
+                "App 集成是否开启：由功能开关和 Plugins/Settings 控制。",
+                "模型怎样加载工具：由模型能力声明和 Codex 的工具加载方式共同控制。",
+                "浏览器是否真正接通：由 Chrome Profile、连接器授权、站点限制和新任务工具列表控制。",
+            ),
+            "goal": "Chrome 工具在新任务中出现，并且一次最小真实调用成功。",
+            "actions": (
+                "确认 App 集成、插件启用、连接器授权和正确的 Chrome Profile。",
+                "新建任务，确认 Chrome 工具是否真的出现。",
+                "先做一次真实 Chrome 操作，再考虑重装插件或修改无关搜索设置。",
+            ),
+            "verification": "新任务工具列表中出现 Chrome，并且一次最小烟雾测试成功。",
+        },
+    },
+}
+
+
+def _solution_result(
+    item: dict[str, Any],
+    report: dict[str, Any],
+    language: str,
+) -> str:
+    status = _solution_status_label(item.get("status"), language)
+    problem_id = item.get("id")
+
+    if problem_id == "plugins-or-skills-unavailable":
+        count = report["skills"].get("total")
+        count_text = str(count) if isinstance(count, int) else ("not verified" if language == "en" else "未核验")
+        return (
+            f"Status: {status}. Local Skills found: {count_text}; real plugin use still depends on a new task."
+            if language == "en"
+            else f"当前结论是“{status}”。本地 Skill 数量：{count_text}；插件能否调用仍以新任务为准。"
+        )
+
+    if problem_id == "model-name-incorrect":
+        selected = report["catalog"].get("selected_model")
+        display_name = selected.get("display_name") if isinstance(selected, dict) else None
+        name_text = str(display_name).strip() if isinstance(display_name, str) and display_name.strip() else ("not confirmed" if language == "en" else "未确认")
+        return (
+            f"Status: {status}. Catalog display name: {name_text}; the Windows picker and actual request remain separate checks."
+            if language == "en"
+            else f"当前结论是“{status}”。目录显示名称：{name_text}；Windows 下拉框和真实请求仍需分开确认。"
+        )
+
+    if problem_id == "history-missing":
+        affected = item.get("affected_unarchived_threads")
+        affected_text = str(affected) if isinstance(affected, int) else ("not verified" if language == "en" else "未核验")
+        return (
+            f"Status: {status}. Unarchived tasks bound to another Provider: {affected_text}."
+            if language == "en"
+            else f"当前结论是“{status}”。绑定其他 Provider 的未归档任务：{affected_text}。"
+        )
+
+    summaries = {
+        "en": {
+            "keep-official-login": "Official sign-in, third-party request authentication, and credential storage were evaluated separately.",
+            "chrome-unavailable": "Static configuration is only a clue; the new-task tool list and a real invocation decide the final result.",
+        },
+        "zh-CN": {
+            "keep-official-login": "官方登录、第三方请求认证和凭据存储已经分开判断。",
+            "chrome-unavailable": "静态配置只提供线索；新任务工具列表和真实调用才是最终结果。",
+        },
+    }
+    summary = summaries[language].get(str(problem_id), str(item.get("diagnosis") or ""))
+    return f"Status: {status}. {summary}" if language == "en" else f"当前结论是“{status}”。{summary}"
+
+
+def _solution_presentation(
+    item: dict[str, Any],
+    report: dict[str, Any],
+    language: str,
+    *,
+    details: bool,
+) -> dict[str, Any]:
+    problem_id = str(item.get("id"))
+    template = SOLUTION_PRESENTATION[language].get(problem_id, {})
+    values = {
+        "provider_id": str(report["provider"].get("id") or "current"),
+        "model_slug": str(report["effective"].get("model") or "current model"),
+        "current_provider": str(
+            report["history"].get("current_provider")
+            or report["provider"].get("id")
+            or "current"
+        ),
+    }
+
+    def render(value: str) -> str:
+        return value.format(**values)
+
+    return {
+        "controls": [render(value) for value in template.get("controls", ())],
+        "goal": render(str(template.get("goal", ""))),
+        "actions": (
+            list(item.get("actions", []))
+            if details
+            else [render(value) for value in template.get("actions", ())]
+        ),
+        "verification": render(str(template.get("verification", ""))),
+    }
 
 
 def _append_solution_guides(
     lines: list[str],
     report: dict[str, Any],
     language: str,
+    *,
+    details: bool,
 ) -> None:
     items = report.get("solutions", {}).get("items", [])
     heading = (
-        f"The {len(items)} problems to solve"
+        f"Action checklist ({len(items)} items)"
         if language == "en"
-        else f"你要解决的 {len(items)} 个问题"
+        else f"检查结果（{len(items)} 项）"
     )
     lines.extend(["", heading])
     for index, item in enumerate(items, start=1):
         status = _solution_status_label(item.get("status"), language)
         lines.append(f"{index}. {item['title']} [{status}]" if language == "en" else f"{index}. {item['title']}【{status}】")
-        lines.append(
-            f"   Diagnosis: {item['diagnosis']}"
-            if language == "en"
-            else f"   判断：{item['diagnosis']}"
+        result = _solution_result(item, report, language)
+        presentation = _solution_presentation(
+            item,
+            report,
+            language,
+            details=details,
         )
-        for action_index, action in enumerate(item.get("actions", [])):
-            if language == "en":
-                prefix = "   Action:" if action_index == 0 else "   -"
-            else:
-                prefix = "   处理：" if action_index == 0 else "   - "
-            lines.append(f"{prefix} {action}" if language == "en" else f"{prefix}{action}")
+        controls = presentation["controls"]
+        goal = presentation["goal"]
+        verification = presentation["verification"]
+        actions = presentation["actions"]
+        if language == "en":
+            lines.append(f"   Current result: {result}")
+            lines.append("   Controlled by:")
+            lines.extend(f"   - {control}" for control in controls)
+            lines.append(f"   Desired state: {goal}")
+            lines.append("   How to change:")
+            lines.extend(
+                f"   {action_index}. {action}"
+                for action_index, action in enumerate(actions, start=1)
+            )
+            lines.append(f"   How to verify: {verification}")
+            if details:
+                lines.append(f"   Technical diagnosis: {item['diagnosis']}")
+        else:
+            lines.append(f"   当前结果：{result}")
+            lines.append("   受什么控制：")
+            lines.extend(f"   - {control}" for control in controls)
+            lines.append(f"   目标状态：{goal}")
+            lines.append("   怎么处理：")
+            lines.extend(
+                f"   {action_index}. {action}"
+                for action_index, action in enumerate(actions, start=1)
+            )
+            lines.append(f"   怎么确认：{verification}")
+            if details:
+                lines.append(f"   技术判断：{item['diagnosis']}")
+        if index != len(items):
+            lines.append("")
 
 
 def _finish_compact_report(
@@ -554,7 +816,7 @@ def render_human(report: dict[str, Any], language: str, *, details: bool = False
                 ),
             ]
         )
-        _append_solution_guides(lines, report, language)
+        _append_solution_guides(lines, report, language, details=details)
         if not details:
             return _finish_compact_report(lines, attention, language)
         lines.extend(
@@ -709,7 +971,7 @@ def render_human(report: dict[str, Any], language: str, *, details: bool = False
             primary_line,
         ]
     )
-    _append_solution_guides(lines, report, language)
+    _append_solution_guides(lines, report, language, details=details)
     if not details:
         return _finish_compact_report(lines, attention, language)
     lines.extend(

@@ -20,6 +20,21 @@
 4. **历史任务消失**：只读统计任务绑定的旧 Provider。先切回旧 Provider、使用可用的全部 Provider 视图或升级 Codex；只有确需迁移绑定时，才在退出 Codex、备份数据库及 WAL/SHM、展示字段 diff 并再次确认后处理。
 5. **Chrome 无法调用**：先看活动模型的 `supports_search_tool`，但不能把它当成完整的暴露开关。按 2026-08-05 官方源码，`false` 会让 namespace 工具规划分支进入 Direct；`true` 只有在 namespace tools 同时启用时才允许 Deferred。Chrome 自身声明和真实任务工具列表仍需核验。之后再核对 Plugins/Settings、官方登录、Chrome Profile、连接器授权和真实调用。
 
+## 默认报告长什么样
+
+doctor 默认不再输出一串技术判断，而是把每个问题固定整理成一张“体检单”：
+
+```text
+1. 检查项【状态】
+   当前结果：现在到底怎么样
+   受什么控制：哪些设置、登录或运行状态决定这个结果
+   目标状态：正常时应该是什么样
+   怎么处理：按顺序做什么
+   怎么确认：用什么实际结果验收
+```
+
+默认报告使用普通用户能理解的表达。`slug`、配置表位置、字段来源和完整证据只在确有必要时出现；使用 `--details` 才展开技术判断。
+
 ## 使用 Skill（推荐）
 
 普通用户只要把仓库链接发给 Codex：
@@ -48,7 +63,7 @@ Skill 和命令行工具使用同一套诊断代码。Skill 不会全局安装 P
 - 当前 `model` 是否能在 `models[].slug` 中唯一匹配。
 - `display_name`、`tool_mode`、`supports_search_tool`、`use_responses_lite` 和上下文窗口配置。
 - 当模型目录字段已经正确时，给出 Windows Desktop 选择器条件式提醒，并明确区分静态目录、App Server 列表、桌面下拉框和真实请求四层证据。
-- 默认先输出 5 个问题的结论和恢复步骤，技术证据通过 `--details` 展开。
+- 默认把 5 个问题分别整理为“当前结果、受什么控制、目标状态、怎么处理、怎么确认”，技术判断和字段证据通过 `--details` 展开。
 - 只统计用户级和可信项目级本地 Skill 数量，不输出 Skill 名称；项目不可信时不扫描项目 Skill，并明确标记覆盖不完整。
 - 面向一般第三方 Responses 模型的 Chrome 症状排查，并说明 Direct 与 Deferred namespace 工具暴露还受运行时条件影响。
 - 活动 Provider 的 `requires_openai_auth`、`env_key`、命令认证和明文 Token 冲突，并把已确认意图与独立安全风险分开。
@@ -160,7 +175,7 @@ python -m pip install -e .
 codex-provider-doctor
 ```
 
-默认报告会直接显示 5 个问题。只排查一个问题时使用：
+默认报告会直接显示 5 张结构一致的体检单。只排查一个问题时使用：
 
 ```shell
 codex-provider-doctor --problem keep-official-login

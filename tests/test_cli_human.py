@@ -178,6 +178,16 @@ class HumanReportTests(unittest.TestCase):
         self.assertIn("auth.json contents: not read", result.stdout)
         self.assertIn("Windows Desktop reminder", result.stdout)
         self.assertIn("does not confirm this cause automatically", result.stdout)
+        self.assertIn("Action checklist (5 items)", result.stdout)
+        for label in (
+            "Current result:",
+            "Controlled by:",
+            "Desired state:",
+            "How to change:",
+            "How to verify:",
+        ):
+            self.assertEqual(result.stdout.count(label), 5)
+        self.assertIn("Technical diagnosis:", result.stdout)
 
     def test_chinese_report_shows_compatibility_changes_without_editing(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

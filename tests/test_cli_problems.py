@@ -1142,7 +1142,7 @@ class UserProblemGuideTests(unittest.TestCase):
             )
 
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("你要解决的 5 个问题", result.stdout)
+            self.assertIn("检查结果（5 项）", result.stdout)
             for title in (
                 "保留官方登录态",
                 "恢复插件与 Skill",
@@ -1151,6 +1151,20 @@ class UserProblemGuideTests(unittest.TestCase):
                 "恢复 Chrome 调用",
             ):
                 self.assertIn(title, result.stdout)
+            for label in (
+                "当前结果：",
+                "受什么控制：",
+                "目标状态：",
+                "怎么处理：",
+                "怎么确认：",
+            ):
+                self.assertEqual(result.stdout.count(label), 5)
+            self.assertIn("界面标签不能证明", result.stdout)
+            self.assertIn("目录已经正确时，不再改 JSON 或反复清缓存", result.stdout)
+            self.assertNotIn("技术判断：", result.stdout)
+            self.assertNotIn("requires_openai_auth", result.stdout)
+            self.assertNotIn("model_catalog_json", result.stdout)
+            self.assertNotIn("namespace", result.stdout)
             self.assertIn("使用 --details 查看配置层、字段来源和完整诊断证据。", result.stdout)
             self.assertNotIn("生效配置\n", result.stdout)
             self.assertNotIn("配置层\n", result.stdout)
@@ -1164,7 +1178,10 @@ class UserProblemGuideTests(unittest.TestCase):
                 "--details",
             )
             self.assertEqual(detailed.returncode, 0, detailed.stderr)
-            self.assertIn("你要解决的 5 个问题", detailed.stdout)
+            self.assertIn("检查结果（5 项）", detailed.stdout)
+            self.assertIn("技术判断：", detailed.stdout)
+            self.assertIn("requires_openai_auth", detailed.stdout)
+            self.assertIn("model_catalog_json", detailed.stdout)
             self.assertIn("生效配置\n", detailed.stdout)
             self.assertIn("配置层\n", detailed.stdout)
 

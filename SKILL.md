@@ -40,7 +40,7 @@ Exit codes remain `0` for no errors or warnings, `1` for warnings, `2` for error
 
 ## Explain the result
 
-Lead with the requested problem, its status, and the exact recovery steps. Do not start with configuration layers.
+Lead with a fixed health-check card for each requested problem. Use this order every time: current result, what controls it, desired state, how to change it, and how to verify it. Use plain language first; keep raw field names secondary. Do not start with configuration layers.
 
 For the five guides:
 
@@ -49,6 +49,8 @@ For the five guides:
 3. Name the effective `model_catalog_json`, exact `model`/`slug` match, and `display_name` fix. If those fields are already valid, do not keep changing JSON or clearing caches merely because Windows Desktop shows `Custom`. Explain the conditional App Server-versus-picker evidence chain, prefer config/CLI/Profile switching, and state that the UI label is not proof of actual routing. Never patch `app.asar` automatically.
 4. Give no-write recovery first: switch back to the old Provider or use an all-Provider task view. Database migration remains a separately confirmed high-risk operation.
 5. Separate static Direct/Deferred exposure, Plugins/Settings evidence, and a live Chrome smoke test.
+
+The default human response must read like an action checklist, not a technical log. Put full field paths, origin layers, raw compatibility assessments, and the original technical diagnosis behind `--details`, except when one exact field is required to carry out the recommended change.
 
 For the official sign-in guide, report three states separately: the Provider block is configured, `codex login status` has or has not confirmed a ChatGPT sign-in, and plaintext token storage still has an independent warning. Do not call an unrun login probe “confirmed.”
 

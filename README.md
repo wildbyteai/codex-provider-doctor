@@ -14,6 +14,21 @@ Status: alpha. The tool reports findings and suggested diffs. It does not edit C
 4. **Recover older tasks**: aggregate the Providers stored on affected tasks. First switch back to those Providers, use an all-provider view when available, or update Codex. Consider binding migration only after quitting Codex, backing up the database plus WAL/SHM, showing the exact field diff, and obtaining another confirmation.
 5. **Restore Chrome calls**: inspect the selected model's `supports_search_tool` early, but do not treat it as a complete exposure switch. In the 2026-08-05 official source, `false` forces the namespace-tool planning branch to Direct; `true` permits Deferred only when namespace tools are also enabled. Actual Chrome declarations and the live task tool list still require verification. Then check Plugins/Settings, official sign-in, the Chrome profile, connector authorization, and a live invocation.
 
+## Default report shape
+
+Instead of a loose technical narrative, every selected problem uses the same health-check card:
+
+```text
+1. Check [status]
+   Current result: what is happening now
+   Controlled by: which settings, sign-in state, or runtime state decides it
+   Desired state: what normal looks like
+   How to change: ordered recovery actions
+   How to verify: the observable acceptance check
+```
+
+The default report uses plain language. Slugs, table paths, field origins, and complete evidence move to `--details` unless they are necessary for the action.
+
 ## Use as a Codex skill (recommended)
 
 Send the repository link to Codex:
@@ -39,7 +54,7 @@ Codex handles the repository path, Skill name, and installer arguments. If the c
 - The active `model` and its exact `models[].slug` match.
 - Model display metadata, `tool_mode`, `supports_search_tool`, `use_responses_lite`, context window, and compact limits.
 - A conditional Windows Desktop picker reminder when the catalog fields are already valid, keeping catalog, App Server, picker, and live-request evidence separate.
-- A five-problem recovery guide with exact no-write actions before the technical evidence.
+- Five consistent health-check cards covering current result, controls, desired state, recovery actions, and verification before technical evidence.
 - Counts of locally discovered user and trusted-project Skills without reporting their names. Untrusted-project Skills are not scanned and make coverage explicitly partial.
 - Symptom-aware Chrome compatibility triage for any selected third-party Responses model, including the runtime conditions around Direct versus Deferred namespace-tool exposure.
 - Provider authentication conflicts involving `requires_openai_auth`, `env_key`, command authentication, or a direct bearer token, with acknowledged intent kept separate from security risk.
@@ -57,7 +72,7 @@ Select one problem for a focused report, or run without `--problem` to see all f
 4. Recover older tasks: `--problem history-missing`
 5. Restore Chrome calls: `--problem chrome-unavailable`
 
-The default human report is deliberately short and leads with recovery steps. Add `--details` to expand configuration layers, field origins, catalog metadata, history aggregates, and all findings.
+The default human report is a fixed action checklist rather than a diagnostic log. Add `--details` to expand technical diagnoses, configuration layers, field origins, catalog metadata, history aggregates, and all findings.
 
 ## How plugin evidence is interpreted
 
