@@ -32,7 +32,7 @@ All notable changes to this project will be documented in this file.
 - Added `features.plugins` as the plugin-system gate while keeping `features.apps` scoped to Apps/connectors and `features.remote_plugin` scoped to the remote directory.
 - Limited project Skill counting to trusted projects and marked skipped or unreadable coverage explicitly.
 - Scoped Direct/Deferred Chrome branch inference to an official-source date, namespace-tools state, and the locally detected Codex version, with runtime verification always required.
-- Reworked Chrome triage so `supports_search_tool = false` is the leading compatibility suspect for a reported Chrome failure: it disables `search_tool_enabled`, removes Deferred exposure when namespace tools are enabled, and leaves only the plugin's declared Direct or Code paths. The report still requires runtime evidence and never claims a unique root cause. `true` only makes Deferred eligible.
+- Reworked Chrome triage so `supports_search_tool = true` is the leading configuration compatibility suspect for a reported third-party Responses Chrome failure: it enables `search_tool_enabled` and can move eligible namespace MCP/plugin tools behind `tool_search`. `false` avoids that Deferred path and matches the observed working DeepSeek combination. The report still requires runtime evidence and never claims a unique root cause.
 - Kept `features.remote_plugin = false` as a possible remote-directory limitation rather than proof that an already installed Chrome tool is unavailable.
 - Put no-write history recovery first: switch back to the stored Provider, use an all-Provider view, or update Codex before considering database migration.
 - Avoided false recovery advice when `display_name` is already correct, and avoided reporting “no Provider mismatch” when the task database was not found.
@@ -53,6 +53,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Corrected the previously reversed Chrome interpretation: the doctor now recommends a backed-up `true` → `false` comparison for the observed DeepSeek/third-party Responses failure instead of treating `false` as the suspect.
 - Treat a failed or unparseable plugin CLI probe as a genuinely informational, unverified inventory instead of evidence that a plugin is missing or broken.
 - Treat valid JSON with an unsupported plugin-inventory shape or unrecognized non-empty item as informational and unverified instead of a verified empty inventory.
 - Avoid recommending plugin reinstalls or cache cleanup when the UI or live runtime already confirms the plugin works.

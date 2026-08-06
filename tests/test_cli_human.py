@@ -247,7 +247,7 @@ class HumanReportTests(unittest.TestCase):
             self.assertNotIn("tool_mode：code_mode_only → direct（建议修改）", result.stdout)
             self.assertIn("不是所有第三方模型的默认值", result.stdout)
 
-    def test_chrome_symptom_report_puts_false_compatibility_suspect_ahead_of_cli_inventory_gap(self) -> None:
+    def test_chrome_symptom_report_puts_true_compatibility_suspect_ahead_of_cli_inventory_gap(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             codex_home = root / "codex-home"
@@ -261,7 +261,7 @@ class HumanReportTests(unittest.TestCase):
       "slug": "vendor-model-v1",
       "display_name": "Vendor Model V1",
       "tool_mode": "code_mode_only",
-      "supports_search_tool": false,
+      "supports_search_tool": true,
       "use_responses_lite": true
     }
   ]
@@ -298,15 +298,15 @@ class HumanReportTests(unittest.TestCase):
                 },
             )
 
-            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.returncode, 1, result.stderr)
             self.assertIn(
-                "首要诊断：未发现足以判定当前故障的配置证据。",
+                "首要诊断：模型把插件工具放到了 tool_search 后面",
                 result.stdout,
             )
             self.assertIn("Chrome / 插件兼容性排查", result.stdout)
             self.assertIn("证据类型：模型目录静态字段", result.stdout)
             self.assertIn("真实调用烟雾测试：诊断器未执行", result.stdout)
-            compatibility_index = result.stdout.index("模型关闭了 Deferred 工具发现")
+            compatibility_index = result.stdout.index("模型把插件工具放到了 tool_search 后面")
             plugin_index = result.stdout.index("CLI 插件探针未能核验实际状态")
             self.assertLess(compatibility_index, plugin_index)
             self.assertIn("不要因 CLI 插件清单失败而重装插件", result.stdout)
@@ -323,7 +323,7 @@ class HumanReportTests(unittest.TestCase):
                             {
                                 "slug": "vendor-model-v1",
                                 "display_name": "Vendor Model V1",
-                                "supports_search_tool": False,
+                                "supports_search_tool": True,
                             }
                         ]
                     }
@@ -362,7 +362,7 @@ class HumanReportTests(unittest.TestCase):
             self.assertEqual(result.returncode, 1, result.stderr)
             self.assertIn("首要诊断：插件系统被关闭", result.stdout)
             feature_index = result.stdout.index("插件系统被关闭")
-            exposure_index = result.stdout.index("模型关闭了 Deferred 工具发现")
+            exposure_index = result.stdout.index("模型把插件工具放到了 tool_search 后面")
             self.assertLess(feature_index, exposure_index)
             self.assertIn("恢复 Chrome 调用【插件能力被关闭】", result.stdout)
 

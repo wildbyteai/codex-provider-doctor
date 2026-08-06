@@ -805,9 +805,14 @@ def _chrome_solution(
         "use_responses_lite": selected.get("use_responses_lite"),
     }
     supports_search_tool = observed["supports_search_tool"]
+    is_deepseek = any(
+        isinstance(selected.get(field), str)
+        and "deepseek" in selected[field].casefold()
+        for field in ("slug", "display_name")
+    )
     evidence_scope = {
         "source": "official_codex_source",
-        "as_of": "2026-08-05",
+        "as_of": "2026-08-06",
         "detected_codex_version": report["runtime"].get("codex_version"),
         "namespace_tools_feature_state": "not_checked",
         "actual_tool_exposure": "runtime_unverified",
@@ -855,32 +860,42 @@ def _chrome_solution(
         scoped_note_en += " features.remote_plugin = false only affects the remote Plugins Directory."
         scoped_note_zh += " features.remote_plugin = false 只影响远程插件目录。"
 
-    if supports_search_tool is False:
+    provider = report.get("provider", {})
+    built_in_openai = (
+        provider.get("id") == "openai"
+        and provider.get("name") == "OpenAI (built-in)"
+    )
+    third_party_responses = (
+        not built_in_openai
+        and provider.get("exists") is True
+        and provider.get("wire_api") == "responses"
+    )
+    if not third_party_responses:
         if language == "en":
             return {
                 "id": "chrome-unavailable",
                 "title": "Restore Chrome calls",
-                "status": "deferred_search_disabled_suspect",
-                "diagnosis": "supports_search_tool = false disables search_tool_enabled. With namespace tools enabled, Deferred exposure is removed and only the plugin's declared Direct or Code paths remain. If Chrome depends on Deferred, it may disappear from a new task, so this is the leading compatibility suspect but not a unique root cause." + scoped_note_en,
+                "status": "runtime_verification_required",
+                "diagnosis": "The supports_search_tool compatibility branch applies only to a selected third-party Responses provider. Check the plugin gate and live Chrome path instead." + scoped_note_en,
                 "observed": observed,
                 "evidence_scope": evidence_scope,
                 "actions": [
-                    "Confirm the effective catalog entry, Chrome exposure evidence, and the new-task tool list, then run one minimal live invocation.",
-                    "Only when the evidence shows that Chrome depends on Deferred should you back up the catalog and compare supports_search_tool = true in a controlled test.",
+                    "Confirm features.plugins, Chrome enablement, connector authorization, and the active Chrome Profile.",
+                    "Open a new task, confirm Chrome in the tool list, and run one minimal live invocation.",
                     "Do not change top-level web_search or reinstall the plugin because a CLI inventory probe failed.",
                 ],
             }
         return {
             "id": "chrome-unavailable",
             "title": "恢复 Chrome 调用",
-            "status": "deferred_search_disabled_suspect",
-            "diagnosis": "supports_search_tool = false 会关闭 search_tool_enabled；namespace tools 开启时，Deferred 暴露会被移除，只剩插件声明允许的 Direct 或 Code 路径。如果 Chrome 依赖 Deferred，它可能不会进入新任务，因此这是首要兼容性疑点，但不是唯一根因。" + scoped_note_zh,
+            "status": "runtime_verification_required",
+            "diagnosis": "supports_search_tool 这条兼容判断只适用于当前选中的第三方 Responses Provider；本场景应继续检查插件总开关和真实 Chrome 调用链。" + scoped_note_zh,
             "observed": observed,
             "evidence_scope": evidence_scope,
             "actions": [
-                "先核对实际生效的模型目录条目、Chrome 暴露证据和新任务工具列表，再做一次最小真实调用。",
-                "只有证据表明 Chrome 依赖 Deferred 时，才备份模型目录并用 supports_search_tool = true 做受控对照。",
-                "不要修改顶层 web_search，也不要因为 CLI 插件清单失败而重装插件。",
+                "确认 features.plugins、Chrome 启用状态、连接器授权和当前 Chrome Profile。",
+                "新建任务，确认工具列表中出现 Chrome，并做一次最小真实调用。",
+                "不要修改顶层 web_search，也不要仅因 CLI 插件清单失败而重装插件。",
             ],
         }
 
@@ -889,26 +904,55 @@ def _chrome_solution(
             return {
                 "id": "chrome-unavailable",
                 "title": "Restore Chrome calls",
-                "status": "runtime_verification_required",
-                "diagnosis": "supports_search_tool = true allows Deferred exposure when namespace tools are enabled; it does not prove that Chrome is declared, loaded, authorized, or callable." + scoped_note_en,
+                "status": "deferred_tool_search_suspect",
+                "diagnosis": "supports_search_tool = true enables search_tool_enabled. When namespace MCP tools are enabled, eligible plugin tools move out of the initial tool list and behind tool_search. If the third-party model or Responses provider cannot use that discovery path correctly, Chrome can disappear or become uncallable, so this is the leading configuration compatibility suspect but not a unique root cause." + (" This matches the observed DeepSeek compatibility case." if is_deepseek else "") + scoped_note_en,
                 "observed": observed,
                 "evidence_scope": evidence_scope,
                 "actions": [
-                    "Open a new task and confirm whether tool_search and the Chrome tool are present.",
-                    "If Chrome is absent, continue with features.plugins, Plugins/Settings, authorization, and Chrome Profile checks before changing model metadata.",
+                    "Back up the effective model catalog and compare only supports_search_tool = false in a controlled test.",
+                    "Restart Codex completely, open a new task, confirm Chrome in the tool list, and run one minimal live invocation.",
                     "Do not change top-level web_search or reinstall the plugin because a CLI inventory probe failed.",
                 ],
             }
         return {
             "id": "chrome-unavailable",
             "title": "恢复 Chrome 调用",
-            "status": "runtime_verification_required",
-            "diagnosis": "supports_search_tool = true 会在 namespace tools 开启时允许 Deferred 暴露，但不能证明 Chrome 已声明、已加载、已授权或能够真实调用。" + scoped_note_zh,
+            "status": "deferred_tool_search_suspect",
+            "diagnosis": "supports_search_tool = true 会启用 search_tool_enabled；namespace MCP tools 开启时，符合条件的插件工具会从初始工具列表移到 tool_search 后面。第三方模型或 Responses Provider 如果不能正确使用这条发现路径，Chrome 就可能消失或无法调用，因此这是首要配置兼容性疑点，但不是唯一根因。" + ("这与已观察到的 DeepSeek 兼容情况一致。" if is_deepseek else "") + scoped_note_zh,
             "observed": observed,
             "evidence_scope": evidence_scope,
             "actions": [
-                "新建任务，确认 tool_search 和 Chrome 工具是否实际出现。",
-                "Chrome 未出现时，先继续检查 features.plugins、Plugins/Settings、授权和 Chrome Profile，再考虑修改模型元数据。",
+                "先备份实际生效的模型目录，只把 supports_search_tool 改为 false 做一次受控对照。",
+                "完全重启 Codex、新建任务，确认工具列表中出现 Chrome，再做一次最小真实调用。",
+                "不要修改顶层 web_search，也不要因为 CLI 插件清单失败而重装插件。",
+            ],
+        }
+
+    if supports_search_tool is False:
+        if language == "en":
+            return {
+                "id": "chrome-unavailable",
+                "title": "Restore Chrome calls",
+                "status": "direct_tool_exposure_configured",
+                "diagnosis": "supports_search_tool = false keeps MCP/plugin tools out of tool_search-based Deferred discovery, so this field is not the leading suspect for the reported Chrome failure." + (" It matches the observed DeepSeek compatibility value." if is_deepseek else "") + " Chrome still must be enabled, authorized, exposed in a new task, and invoked successfully." + scoped_note_en,
+                "observed": observed,
+                "evidence_scope": evidence_scope,
+                "actions": [
+                    "Keep supports_search_tool = false while checking features.plugins, Plugins/Settings, connector authorization, and the active Chrome Profile.",
+                    "Open a new task, confirm whether Chrome is present, and run one minimal live invocation.",
+                    "Do not change top-level web_search or reinstall the plugin because a CLI inventory probe failed.",
+                ],
+            }
+        return {
+            "id": "chrome-unavailable",
+            "title": "恢复 Chrome 调用",
+            "status": "direct_tool_exposure_configured",
+            "diagnosis": "supports_search_tool = false 不会把 MCP/插件工具放到 tool_search 的延迟发现路径后面，因此这个字段不是当前 Chrome 故障的首要疑点。" + ("它与已观察到的 DeepSeek 兼容值一致。" if is_deepseek else "") + "但仍要确认 Chrome 已启用、已授权、在新任务中出现并能真实调用。" + scoped_note_zh,
+            "observed": observed,
+            "evidence_scope": evidence_scope,
+            "actions": [
+                "保持 supports_search_tool = false，再检查 features.plugins、Plugins/Settings、连接器授权和当前 Chrome Profile。",
+                "新建任务，确认 Chrome 是否出现，并做一次最小真实调用。",
                 "不要修改顶层 web_search，也不要仅因 CLI 插件清单失败而重装插件。",
             ],
         }

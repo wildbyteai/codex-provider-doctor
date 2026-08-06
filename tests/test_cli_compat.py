@@ -11,7 +11,7 @@ from tests.test_cli_runtime import install_fake_codex
 
 
 class CompatibilityRuleTests(unittest.TestCase):
-    def test_chrome_symptom_treats_false_as_the_leading_deferred_compatibility_suspect(self) -> None:
+    def test_chrome_symptom_treats_false_as_direct_exposure_not_the_leading_suspect(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             codex_home = root / "codex-home"
@@ -74,30 +74,23 @@ class CompatibilityRuleTests(unittest.TestCase):
                             "applicability_reason": None,
                             "evidence_source": "catalog.selected_model.supports_search_tool",
                             "observed_supports_search_tool": False,
-                            "assessment": "deferred_search_disabled",
+                            "assessment": "direct_tool_exposure_configured",
                             "causality": "not_proven",
                             "live_smoke_test": "not_run_by_doctor",
-                            "next_step": "verify_declared_exposure_and_live_invocation",
+                            "next_step": "verify_plugin_gates_and_live_invocation",
                             "namespace_tools_feature_state": "not_checked",
-                            "exposure_inference": "deferred_exposure_removed_by_false",
+                            "exposure_inference": "mcp_tools_not_deferred_by_search_tool",
                             "semantics_source": "official_codex_source",
-                            "semantics_as_of": "2026-08-05",
+                            "semantics_as_of": "2026-08-06",
                             "detected_codex_version": None,
                             "runtime_verification_required": True,
                         }
                     ],
-                    "finding_codes": ["compat.chrome.supports_search_tool_false"],
+                    "finding_codes": [],
                     "web_search": None,
                 },
             )
-            finding = report["findings"][0]
-            self.assertEqual(finding["severity"], "info")
-            self.assertEqual(finding["status"], "unverified")
-            self.assertIn("Deferred 暴露会被移除", finding["message"])
-            self.assertIn("不是唯一根因", finding["message"])
-            self.assertIn("不要修改顶层 web_search", finding["remedy"])
-
-    def test_chrome_symptom_keeps_true_exposure_mode_runtime_dependent(self) -> None:
+    def test_chrome_symptom_treats_true_as_the_leading_tool_search_suspect(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             codex_home = root / "codex-home"
@@ -144,7 +137,7 @@ class CompatibilityRuleTests(unittest.TestCase):
                 "--json",
             )
 
-            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.returncode, 1, result.stderr)
             report = json.loads(result.stdout)
             assessment = report["compatibility"]["symptom_assessments"][0]
             self.assertEqual(
@@ -157,12 +150,19 @@ class CompatibilityRuleTests(unittest.TestCase):
                 },
                 {
                     "observed": True,
-                    "assessment": "deferred_exposure_eligible",
+                    "assessment": "deferred_tool_search_suspect",
                     "causality": "not_proven",
-                    "next_step": "verify_namespace_tools_and_live_invocation",
-                    "finding_codes": [],
+                    "next_step": "back_up_catalog_compare_false_and_verify",
+                    "finding_codes": ["compat.chrome.supports_search_tool_true"],
                 },
             )
+            finding = report["findings"][0]
+            self.assertEqual(finding["severity"], "warning")
+            self.assertEqual(finding["status"], "unverified")
+            self.assertIn("tool_search", finding["message"])
+            self.assertIn("不是唯一根因", finding["message"])
+            self.assertIn("改为 false 做一次受控对照", finding["remedy"])
+            self.assertIn("不要修改顶层 web_search", finding["remedy"])
 
     def test_deepseek_rule_is_not_applicable_to_builtin_openai_provider(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

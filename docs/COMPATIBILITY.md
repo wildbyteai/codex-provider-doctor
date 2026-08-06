@@ -26,17 +26,17 @@ codex-provider-doctor --problem chrome-unavailable
 
 `--symptom chrome-plugin-unavailable` remains a lower-level compatibility trigger for existing integrations; it does not replace the user-facing recovery guide.
 
-This check applies to any selected third-party `responses` provider; it is not limited to DeepSeek or to a dated compatibility rule. In the [Codex tool-planning source snapshot dated 2026-08-05](https://github.com/openai/codex/blob/main/codex-rs/core/src/tools/spec_plan.rs), `supports_search_tool` participates in a condition that also checks whether namespace tools are enabled. The doctor reads the selected catalog entry's actual value without treating it as the complete exposure switch:
+This check applies to any selected third-party `responses` provider; it is not limited to DeepSeek or to a dated compatibility rule. In the Codex source snapshot dated 2026-08-06, [`spec_plan.rs`](https://github.com/openai/codex/blob/main/codex-rs/core/src/tools/spec_plan.rs) maps `supports_search_tool` to `search_tool_enabled`, while [`mcp_tool_exposure.rs`](https://github.com/openai/codex/blob/main/codex-rs/core/src/mcp_tool_exposure.rs) keeps MCP tools **Direct** when that flag is false and can make eligible namespace MCP tools **Deferred** behind `tool_search` when it is true. The doctor reads the selected catalog entry's actual value without treating it as the complete Chrome switch:
 
-- `false`: `search_tool_enabled` is false. With namespace tools enabled, **Deferred** exposure is removed and only the plugin's declared **Direct** or **Code** paths remain. When Chrome is missing under a third-party Responses Provider, this is the leading static compatibility suspect, but it does not prove a unique root cause or reveal Chrome's own exposure declaration.
-- `true`: **Deferred is eligible** when namespace tools are enabled. The value by itself does not explain why Chrome is absent, loaded, authorized, or callable.
+- `true`: eligible namespace MCP/plugin tools can move out of the initial tool list and behind `tool_search`. If the selected third-party model or Responses provider cannot expose or use that discovery path correctly, Chrome may disappear or become uncallable. For a reported Chrome failure, this is the leading static configuration compatibility suspect, but it does not prove a unique root cause.
+- `false`: MCP/plugin tools do not enter that `tool_search`-based Deferred path. This matches the observed working DeepSeek combination and the public reproduction in [`openai/codex#36382`](https://github.com/openai/codex/issues/36382). It does not prove that Chrome is installed, enabled, authorized, or callable.
 - missing or non-Boolean: report that the static field is unavailable and keep the runtime cause unverified.
 
-The JSON report records this under `compatibility.symptom_assessments`. It deliberately provides no automatic `suggested_changes`: the doctor distinguishes static catalog evidence, the plugin's declared exposure, plugin-inventory evidence, the new-task tool list, and a real invocation. Only when those checks show that Chrome depends on Deferred should a backed-up `supports_search_tool = true` comparison be proposed. A live smoke test remains stronger than static configuration. Never infer or change top-level `web_search`, and never recommend reinstalling a plugin merely because `codex plugin list --json` failed.
+The JSON report records this under `compatibility.symptom_assessments`. When the user reports Chrome unavailable and the selected third-party Responses model has `supports_search_tool = true`, the doctor reports a warning and proposes only a backed-up, controlled comparison to `false`; it never edits the catalog automatically. A live smoke test remains stronger than static configuration. Never infer or change top-level `web_search`, and never recommend reinstalling a plugin merely because `codex plugin list --json` failed.
 
 Each assessment records the official-source date, the locally detected Codex version when available, the namespace-tools state as not checked, and `runtime_verification_required: true`. If the installed version was not detected or differs from the cited source snapshot, the branch inference remains dated static evidence rather than a claim about the user's live runtime.
 
-This general symptom triage is independent of the dated rule below. A dated case can describe an observed field combination without proving that the same values fix the current Chrome symptom.
+This general symptom triage is independent of the dated rule below. The dated DeepSeek case provides the observed `false` comparison value, while the current report still keeps plugin state, authorization, the new-task tool list, and a live invocation as separate evidence.
 
 ## `deepseek-direct-tools-2026-08-03`
 
@@ -67,7 +67,7 @@ Important boundaries:
 - `supports_search_tool = false` is scoped to the selected third-party DeepSeek case. It is not a recommendation to change official models from `true`.
 - `tool_mode = direct` is assessed as `review_if_symptomatic`. A differing `code_mode_only` value is recorded in `observed_differences`, but it is excluded from `suggested_changes` when direct tools already work and no matching symptom is established.
 - Direct tool exposure can increase the initial tool list and context use, which is another reason not to require the change without symptoms.
-- `use_responses_lite = false` remains a suggested change when the selected DeepSeek case differs.
+- `use_responses_lite = true` omits hosted Responses tools; it is not the Chrome-plugin switch. `false` remains a suggested change when the selected DeepSeek case differs.
 - When the rule is applicable, a different Codex version produces a warning even when all three values match.
 - After any manual edit, fully restart Codex, create a new task, and test Skill loading, Chrome, Web Search, and other plugins separately.
 - A passing Chrome test does not prove that every connector or MCP server is authorized.

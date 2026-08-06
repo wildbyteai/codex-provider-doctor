@@ -18,7 +18,7 @@
 2. **插件、官方插件或 Skill 不可用**：先检查 `features.plugins`，再检查 Plugins/Settings、授权和新任务工具列表。`features.apps` 只控制 App/连接器，`features.remote_plugin` 只控制远程插件目录，都不是插件总开关。CLI 清单失败不能作为重装依据。
 3. **模型名称不正确**：确认实际生效的 `model_catalog_json`，再按 Codex 的最长 `models[].slug` 前缀规则匹配；首次未命中且 `model` 只有一层简单命名空间（如 `vendor/model-name`）时，会去掉前缀重试，仍未命中则使用回退元数据，不会阻断请求。检查命中条目的 `display_name`，但不要只因为 Windows Desktop 显示 `Custom` 就反复改 JSON。
 4. **历史任务消失**：只读统计任务绑定的旧 Provider。先切回旧 Provider、使用可用的全部 Provider 视图或升级 Codex；只有确需迁移绑定时，才在退出 Codex、备份数据库及 WAL/SHM、展示字段 diff 并再次确认后处理。
-5. **Chrome 无法调用**：先看活动模型的 `supports_search_tool`。第三方 Responses Provider 下已经出现 Chrome 缺失时，`false` 是首要兼容性疑点：它会关闭 `search_tool_enabled`；namespace tools 开启时，Deferred 暴露会被移除，只剩插件声明允许的 Direct 或 Code 路径。但这不是唯一根因。`true` 只表示具备 Deferred 条件。两种情况都要继续核对 `features.plugins`、Plugins/Settings、授权、新任务工具列表和真实调用。
+5. **Chrome 无法调用**：先看活动模型的 `supports_search_tool`。第三方 Responses Provider 下，`true` 会把符合条件的 MCP/插件工具放到 `tool_search` 后面；DeepSeek 或第三方接口不能正确使用这条发现路径时，Chrome 可能直接消失或无法调用，所以 `true` 是首要配置兼容性疑点。`false` 不走这条延迟发现路径，符合当前 DeepSeek 实测可用组合。它不是唯一根因，仍要继续核对 `features.plugins`、Plugins/Settings、授权、新任务工具列表和真实调用。
 
 ## 默认报告长什么样
 
@@ -70,7 +70,7 @@ Skill 和命令行工具使用同一套诊断代码。Skill 不会全局安装 P
 - 当模型目录字段已经正确时，给出 Windows Desktop 选择器条件式提醒，并明确区分静态目录、App Server 列表、桌面下拉框和真实请求四层证据。
 - 默认把 5 个问题分别整理为“当前结果、具体位置/关键参数、受什么控制、目标状态、怎么处理、怎么确认”；默认报告直接给出安全归一化的文件/界面位置、参数和当前值，`--details` 再展开完整配置层与技术证据。
 - 只统计用户级和可信项目级本地 Skill 数量，不输出 Skill 名称；项目不可信时不扫描项目 Skill，并明确标记覆盖不完整。
-- 面向一般第三方 Responses 模型的 Chrome 症状排查，把 `supports_search_tool = false` 的 Deferred 路径缺失放到前部，同时保留插件声明和运行时验证边界。
+- 面向一般第三方 Responses 模型的 Chrome 症状排查：`supports_search_tool = true` 会把符合条件的插件工具放到 `tool_search` 延迟发现路径，`false` 则保持直接暴露；报告同时保留插件状态和运行时验证边界。
 - 活动 Provider 的请求凭据优先级、缺失 `env_key` 不回退、命令认证互斥规则，以及 `requires_openai_auth`、官方登录和明文 Token 风险的独立状态。
 - 官方 Codex 登录方式，以及 CLI 只读探针成功时的插件总数和 Chrome 开启状态；探针失败时明确保留为“未核验”，不会在报告里列出其他插件名称。
 - 历史任务按 `model_provider` 分组的总数、未归档数和已归档数。
@@ -86,7 +86,14 @@ CLI 插件探针只是一个证据来源，不是运行时状态的最终结论�
 
 如果 CLI 命令失败或返回当前工具不认识的格式，只能说明插件清单尚未核验。它会被记录为 `info / unverified`，单独出现时不会把退出码从 `0` 变成 `1`。即使 CLI 清单成功但没有确认 Chrome，也仍是低优先级辅助证据，不等于真实调用失败。设置页面或实际调用已经正常时，不要重装插件或清理缓存；只有这些更强证据也失败时，才继续考虑修复。
 
-如果用户明确报告 Chrome 不可用，优先使用 `--problem chrome-unavailable`；底层参数 `--symptom chrome-plugin-unavailable` 继续兼容已有集成。按 2026-08-05 官方源码，`supports_search_tool = false` 会关闭 `search_tool_enabled`；namespace tools 开启时，Deferred 暴露会被移除，只剩插件声明允许的 Direct 或 Code 路径。因此在第三方 Responses Provider 下 Chrome 缺失时，`false` 是首要静态兼容性疑点，但不能据此断言唯一根因，也不能知道 Chrome 自身声明了哪种暴露方式。`true` 只表示具备 Deferred 条件。设置页面、新任务工具列表和真实调用仍要分开核验；这个检查不会推断或修改顶层 `web_search`。
+如果用户明确报告 Chrome 不可用，优先使用 `--problem chrome-unavailable`；底层参数 `--symptom chrome-plugin-unavailable` 继续兼容已有集成。按 2026-08-06 官方源码，`supports_search_tool = true` 会启用 `search_tool_enabled`；namespace MCP tools 开启时，符合条件的插件工具会从初始工具列表移到 `tool_search` 后面的 Deferred 暴露。第三方模型或 Responses Provider 如果不能正确使用这条发现路径，Chrome 就可能不出现或无法调用，因此 `true` 是首要静态兼容性疑点，但不能据此断言唯一根因。`false` 不走这条延迟发现路径，在当前 DeepSeek 实测组合中可恢复 Chrome。设置页面、新任务工具列表和真实调用仍要分开核验；这个检查不会推断或修改顶层 `web_search`。
+
+这几个参数要分开理解：
+
+- `models[].supports_search_tool`：决定插件/MCP 工具是否可能被放到 `tool_search` 后面；当前 DeepSeek 组合应优先使用 `false`。
+- `models[].tool_mode`：决定 Direct 或 Code Mode 入口，不负责安装或启用 Chrome。
+- `models[].use_responses_lite`：设为 `true` 会停用托管 Responses 工具，但不等于关闭 Chrome 插件。
+- 顶层 `web_search`：只控制 Web Search，不控制 Chrome 插件。
 
 ## Windows Desktop 模型选择器提醒
 

@@ -319,8 +319,10 @@ class UserProblemGuideTests(unittest.TestCase):
             self.assertEqual(history[("$CODEX_HOME/history.sqlite", "数据库访问方式")], "只读；未读取任务正文")
 
             chrome = target_map("chrome-unavailable")
-            self.assertEqual(chrome[("$CODEX_HOME/catalog.json", "models[].supports_search_tool")], "false（Deferred 被移除；首要兼容性疑点，非唯一根因）")
-            self.assertEqual(chrome[("$CODEX_HOME/catalog.json", "models[].tool_mode")], "direct")
+            self.assertEqual(chrome[("$CODEX_HOME/catalog.json", "models[].supports_search_tool")], "false（插件/MCP 工具不走 tool_search 延迟发现）")
+            self.assertEqual(chrome[("$CODEX_HOME/catalog.json", "models[].tool_mode")], "direct（只影响 Direct/Code Mode 入口；不是 Chrome 启用开关）")
+            self.assertEqual(chrome[("$CODEX_HOME/catalog.json", "models[].use_responses_lite")], "未设置（不是 Chrome 启用开关）")
+            self.assertEqual(chrome[("$CODEX_HOME/config.toml", "web_search")], "未设置（只控制 Web Search；不控制 Chrome）")
             self.assertEqual(chrome[("$CODEX_HOME/config.toml", "features.plugins")], "true（默认值；未显式设置）")
             self.assertEqual(chrome[("$CODEX_HOME/config.toml", "features.apps")], "true")
             self.assertEqual(chrome[("$CODEX_HOME/config.toml", "features.remote_plugin")], "false")
@@ -378,7 +380,11 @@ class UserProblemGuideTests(unittest.TestCase):
                         "--json",
                     )
 
-                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(
+                        result.returncode,
+                        1 if supports_search_tool else 0,
+                        result.stderr,
+                    )
                     report = json.loads(result.stdout)
                     card = report["solutions"]["health_checks"][0]
                     value = "true" if supports_search_tool else "false"
@@ -392,16 +398,16 @@ class UserProblemGuideTests(unittest.TestCase):
                         if target["parameter"] == "models[].supports_search_tool"
                     )
                     expected = (
-                        "true（namespace tools 开启时可进入 Deferred；仍需运行时验证）"
+                        "true（符合条件的插件/MCP 工具会放到 tool_search 后面；首要兼容性疑点）"
                         if supports_search_tool
-                        else "false（Deferred 被移除；首要兼容性疑点，非唯一根因）"
+                        else "false（插件/MCP 工具不走 tool_search 延迟发现）"
                     )
                     self.assertEqual(support_target["current_value"], expected)
-                    self.assertIn("Deferred", card["current_result"])
                     if supports_search_tool:
-                        self.assertNotIn("首要兼容性疑点", card["current_result"])
+                        self.assertIn("首要配置疑点", card["current_result"])
+                        self.assertIn("tool_search", card["current_result"])
                     else:
-                        self.assertIn("首要兼容性疑点", card["current_result"])
+                        self.assertIn("不是当前首要疑点", card["current_result"])
                     self.assertNotIn("唯一根因是", card["current_result"])
 
     def test_provider_fields_keep_their_individual_effective_config_origins(self) -> None:
@@ -1309,7 +1315,7 @@ class UserProblemGuideTests(unittest.TestCase):
             solution = json.loads(result.stdout)["solutions"]["items"][0]
             self.assertNotEqual(solution["status"], "plugin_features_disabled")
 
-    def test_chrome_problem_treats_false_as_the_leading_compatibility_suspect_without_claiming_a_root_cause(self) -> None:
+    def test_chrome_problem_treats_false_as_direct_exposure_not_the_leading_suspect(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             codex_home = root / "codex-home"
@@ -1360,17 +1366,16 @@ class UserProblemGuideTests(unittest.TestCase):
             report = json.loads(result.stdout)
             self.assertEqual(
                 report["compatibility"]["symptom_assessments"][0]["assessment"],
-                "deferred_search_disabled",
+                "direct_tool_exposure_configured",
             )
-            self.assertIn(
-                "compat.chrome.supports_search_tool_false",
+            self.assertNotIn(
+                "compat.chrome.supports_search_tool_true",
                 [finding["code"] for finding in report["findings"]],
             )
             solution = report["solutions"]["items"][0]
-            self.assertEqual(solution["status"], "deferred_search_disabled_suspect")
-            self.assertIn("Deferred 暴露会被移除", solution["diagnosis"])
-            self.assertIn("首要兼容性疑点", solution["diagnosis"])
-            self.assertIn("不是唯一根因", solution["diagnosis"])
+            self.assertEqual(solution["status"], "direct_tool_exposure_configured")
+            self.assertIn("不会把 MCP/插件工具放到 tool_search", solution["diagnosis"])
+            self.assertIn("不是当前 Chrome 故障的首要疑点", solution["diagnosis"])
             self.assertEqual(solution["observed"]["supports_search_tool"], False)
 
     def test_chrome_problem_prioritizes_the_disabled_plugin_system(self) -> None:
@@ -1490,11 +1495,11 @@ class UserProblemGuideTests(unittest.TestCase):
             self.assertEqual(result.returncode, 1, result.stderr)
             report = json.loads(result.stdout)
             solution = report["solutions"]["items"][0]
-            self.assertEqual(solution["status"], "runtime_verification_required")
-            self.assertNotIn("首要兼容性疑点", solution["diagnosis"])
+            self.assertEqual(solution["status"], "deferred_tool_search_suspect")
+            self.assertIn("首要配置兼容性疑点", solution["diagnosis"])
             self.assertIn("remote_plugin", solution["diagnosis"])
 
-    def test_chrome_problem_treats_true_as_deferred_eligible_but_still_runtime_unverified(self) -> None:
+    def test_chrome_problem_treats_true_as_the_leading_tool_search_suspect(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             codex_home = root / "codex-home"
@@ -1541,7 +1546,7 @@ class UserProblemGuideTests(unittest.TestCase):
                 "--json",
             )
 
-            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.returncode, 1, result.stderr)
             report = json.loads(result.stdout)
             assessment = report["compatibility"]["symptom_assessments"][0]
             self.assertEqual(
@@ -1551,9 +1556,9 @@ class UserProblemGuideTests(unittest.TestCase):
                     "finding_codes": [finding["code"] for finding in report["findings"]],
                 },
                 {
-                    "assessment": "deferred_exposure_eligible",
-                    "next_step": "verify_namespace_tools_and_live_invocation",
-                    "finding_codes": [],
+                    "assessment": "deferred_tool_search_suspect",
+                    "next_step": "back_up_catalog_compare_false_and_verify",
+                    "finding_codes": ["compat.chrome.supports_search_tool_true"],
                 },
             )
             self.assertEqual(
@@ -1561,8 +1566,8 @@ class UserProblemGuideTests(unittest.TestCase):
                 {
                     "id": "chrome-unavailable",
                     "title": "恢复 Chrome 调用",
-                    "status": "runtime_verification_required",
-                    "diagnosis": "supports_search_tool = true 会在 namespace tools 开启时允许 Deferred 暴露，但不能证明 Chrome 已声明、已加载、已授权或能够真实调用。",
+                    "status": "deferred_tool_search_suspect",
+                    "diagnosis": "supports_search_tool = true 会启用 search_tool_enabled；namespace MCP tools 开启时，符合条件的插件工具会从初始工具列表移到 tool_search 后面。第三方模型或 Responses Provider 如果不能正确使用这条发现路径，Chrome 就可能消失或无法调用，因此这是首要配置兼容性疑点，但不是唯一根因。",
                     "observed": {
                         "supports_search_tool": True,
                         "tool_mode": None,
@@ -1570,16 +1575,16 @@ class UserProblemGuideTests(unittest.TestCase):
                     },
                     "evidence_scope": {
                         "source": "official_codex_source",
-                        "as_of": "2026-08-05",
+                        "as_of": "2026-08-06",
                         "detected_codex_version": None,
                         "namespace_tools_feature_state": "not_checked",
                         "actual_tool_exposure": "runtime_unverified",
                         "runtime_verification_required": True,
                     },
                     "actions": [
-                        "新建任务，确认 tool_search 和 Chrome 工具是否实际出现。",
-                        "Chrome 未出现时，先继续检查 features.plugins、Plugins/Settings、授权和 Chrome Profile，再考虑修改模型元数据。",
-                        "不要修改顶层 web_search，也不要仅因 CLI 插件清单失败而重装插件。",
+                        "先备份实际生效的模型目录，只把 supports_search_tool 改为 false 做一次受控对照。",
+                        "完全重启 Codex、新建任务，确认工具列表中出现 Chrome，再做一次最小真实调用。",
+                        "不要修改顶层 web_search，也不要因为 CLI 插件清单失败而重装插件。",
                     ],
                 },
             )

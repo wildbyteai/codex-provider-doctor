@@ -69,8 +69,9 @@
 如果我明确报告“第三方模型下 Chrome 插件不可用”，先把活动模型目录条目的实际 `supports_search_tool` 放到兼容性排查前部，并按当前工具暴露语义解释：
 
 - 仅当当前是第三方 Responses Provider 时适用；不要限定为 DeepSeek。
-- `supports_search_tool = false` 时，会关闭 `search_tool_enabled`；namespace tools 开启时，Deferred 暴露会被移除，只剩插件声明允许的 Direct 或 Code 路径。第三方 Responses Provider 下已经出现 Chrome 缺失时，把它标成首要兼容性疑点，但不能断言唯一根因，也不能据此知道 Chrome 自身声明了哪种暴露方式。
-- `supports_search_tool = true` 时，namespace tools 开启后才具备 Deferred 条件；这个值本身不能解释 Chrome 缺失。
+- `supports_search_tool = true` 时，会启用 `search_tool_enabled`；namespace MCP tools 开启时，符合条件的插件工具会从初始工具列表移到 `tool_search` 后面的 Deferred 暴露。第三方模型或 Provider 如果不能正确使用这条发现路径，Chrome 可能不出现或无法调用。用户已经报告 Chrome 缺失时，把 `true` 标成首要配置兼容性疑点，但不能断言唯一根因。
+- `supports_search_tool = false` 时，不走上述 `tool_search` 延迟发现路径，MCP/插件工具不会因为这个字段被藏到初始列表之外；当前 DeepSeek 实测组合用这个值可以恢复 Chrome。若 Chrome 仍不可用，继续检查插件总开关、授权、Profile 和真实调用，不要把 `false` 反过来写成首要疑点。
+- 另外逐项写清：`tool_mode` 只影响 Direct/Code Mode 入口；`use_responses_lite = true` 会停用托管 Responses 工具；顶层 `web_search` 只控制 Web Search。这三个参数都不能替代 Chrome 插件状态和真实调用验证。
 - 把模型目录静态证据、插件清单证据和真实调用烟雾测试分开写；真实调用仍是更强证据。
 - 不要自动推断或修改顶层 `web_search`，也不要因为 CLI 插件清单探针失败就建议重装插件。
 

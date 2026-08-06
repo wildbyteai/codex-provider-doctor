@@ -83,10 +83,10 @@ ENGLISH_FINDINGS: dict[str, tuple[str, str, str]] = {
         "The selected dated case recommends changing supports_search_tool or use_responses_lite. tool_mode is reviewed only when direct tools, skills, or Chrome show symptoms.",
         "Back up the catalog, review suggested_changes, and do not disable top-level web_search because of supports_search_tool. Restart Codex and test each tool surface separately after any edit.",
     ),
-    "compat.chrome.supports_search_tool_false": (
-        "The model disables Deferred tool discovery",
-        "supports_search_tool = false disables search_tool_enabled. With namespace tools enabled, Deferred exposure is removed and only the plugin's declared Direct or Code paths remain. If Chrome depends on Deferred, this is the leading compatibility suspect, but not a unique root cause.",
-        "Verify the effective catalog entry, Chrome exposure evidence, the new-task tool list, and a live invocation. Only when those show a Deferred dependency should a backed-up supports_search_tool = true comparison be considered. Do not change top-level web_search or reinstall a plugin because the CLI inventory failed.",
+    "compat.chrome.supports_search_tool_true": (
+        "The model puts plugin tools behind tool_search",
+        "supports_search_tool = true enables search_tool_enabled. With namespace MCP tools enabled, eligible plugin tools move from the initial tool list to Deferred exposure behind tool_search. If the third-party model or Responses provider cannot use that discovery path correctly, Chrome may disappear or become uncallable. This is the leading configuration compatibility suspect, not a unique root cause.",
+        "Back up the effective catalog and compare supports_search_tool = false in a controlled test. Restart Codex, open a new task, verify the Chrome tool list, and run a minimal live invocation. Do not change top-level web_search or reinstall a plugin because the CLI inventory failed.",
     ),
     "compat.rule_version_differs": (
         "The selected compatibility rule was observed on a different Codex version",
@@ -327,7 +327,7 @@ def _finding_sort_key(item: dict[str, Any]) -> int:
         return 1
     if item.get("code") == "plugins.feature.plugins_disabled":
         return 2
-    if item.get("code") == "compat.chrome.supports_search_tool_false":
+    if item.get("code") == "compat.chrome.supports_search_tool_true":
         return 3
     if item.get("code") == "plugins.feature.apps_disabled":
         return 4
@@ -374,15 +374,15 @@ def _compatibility_reason(reason: Any, language: str) -> str:
 def _symptom_assessment_label(assessment: Any, language: str) -> str:
     labels = {
         "en": {
-            "deferred_search_disabled": "Deferred tool discovery is disabled; Chrome exposure still needs runtime verification",
-            "deferred_exposure_eligible": "Deferred exposure is eligible; live Chrome exposure is unverified",
+            "direct_tool_exposure_configured": "plugin tools are not deferred behind tool_search; Chrome still needs runtime verification",
+            "deferred_tool_search_suspect": "plugin tools may be deferred behind tool_search; leading configuration suspect",
             "not_indicated_by_static_field": "not indicated by this static field",
             "field_unavailable": "the catalog field is unavailable",
             "not_applicable": "not applicable to the selected model or provider",
         },
         "zh-CN": {
-            "deferred_search_disabled": "Deferred 工具发现已关闭；Chrome 实际暴露仍待核验",
-            "deferred_exposure_eligible": "该字段允许进入 Deferred；Chrome 实际暴露仍待核验",
+            "direct_tool_exposure_configured": "插件工具未被放到 tool_search 后面；Chrome 仍需实际验证",
+            "deferred_tool_search_suspect": "插件工具可能被放到 tool_search 后面；这是首要配置疑点",
             "not_indicated_by_static_field": "该静态字段未指向兼容性问题",
             "field_unavailable": "模型目录字段不可用",
             "not_applicable": "不适用于当前模型或 Provider",
@@ -440,7 +440,8 @@ def _solution_status_label(status: Any, language: str) -> str:
             "plugin_features_disabled": "plugin features disabled",
             "skill_installation_not_found": "skill installation not found",
             "skill_installation_unverified": "skill installation only partially verified",
-            "deferred_search_disabled_suspect": "the model disables Deferred tool discovery; leading compatibility suspect",
+            "deferred_tool_search_suspect": "plugin tools are behind tool_search; leading compatibility suspect",
+            "direct_tool_exposure_configured": "direct plugin-tool exposure configured; runtime unverified",
             "runtime_verification_required": "live verification required",
         },
         "zh-CN": {
@@ -463,7 +464,8 @@ def _solution_status_label(status: Any, language: str) -> str:
             "plugin_features_disabled": "插件能力被关闭",
             "skill_installation_not_found": "未发现本地 Skill",
             "skill_installation_unverified": "Skill 安装仅部分核验",
-            "deferred_search_disabled_suspect": "模型关闭了 Deferred 工具发现；首要兼容性疑点",
+            "deferred_tool_search_suspect": "插件工具被放到 tool_search 后面；首要兼容性疑点",
+            "direct_tool_exposure_configured": "插件工具直接暴露；运行状态待核验",
             "runtime_verification_required": "需要实际验证",
         },
     }
@@ -532,13 +534,15 @@ SOLUTION_PRESENTATION: dict[str, dict[str, dict[str, Any]]] = {
         "chrome-unavailable": {
             "controls": (
                 "Plugin loading: features.plugins and Plugins/Settings; features.apps and remote_plugin have narrower scopes.",
-                "Model tool loading: selected-model capability metadata plus Codex tool-loading behavior.",
+                "models[].supports_search_tool: true puts eligible namespace MCP/plugin tools behind tool_search; false keeps them out of that deferred-discovery path.",
+                "models[].tool_mode chooses Direct versus Code Mode entry; models[].use_responses_lite = true omits hosted Responses tools. Neither installs or enables Chrome.",
+                "Top-level web_search controls Web Search, not the Chrome plugin.",
                 "Browser bridge: Chrome Profile, connector authorization, site rules, and the new-task tool list.",
             ),
             "goal": "The Chrome tool appears in a new task and one minimal real invocation succeeds.",
             "actions": (
                 "Confirm features.plugins and Chrome enablement first; check features.apps only when the Chrome path uses an App/connector, then confirm authorization and the correct Chrome Profile.",
-                "If supports_search_tool = false and Chrome is still absent after the plugin checks, back up the catalog and compare true once; if it is already true, do not change it for this symptom alone.",
+                "For a third-party Responses model, supports_search_tool = true is the first catalog compatibility suspect when Chrome is missing. Back up the catalog and compare false once; keep false while continuing other checks.",
                 "Open a new task and run one real Chrome action before reinstalling anything or changing top-level web_search.",
             ),
             "verification": "The new-task tool list contains Chrome and one minimal smoke test succeeds.",
@@ -605,13 +609,15 @@ SOLUTION_PRESENTATION: dict[str, dict[str, dict[str, Any]]] = {
         "chrome-unavailable": {
             "controls": (
                 "插件是否能加载：先看 features.plugins 和 Plugins/Settings；apps、remote_plugin 只在各自范围内判断。",
-                "模型怎样加载工具：由模型能力声明和 Codex 的工具加载方式共同控制。",
+                "models[].supports_search_tool：true 会把符合条件的 MCP/插件工具放到 tool_search 后面；false 不走这条延迟发现路径。",
+                "models[].tool_mode 只决定 Direct/Code Mode 入口；models[].use_responses_lite = true 会停用托管 Responses 工具；两者都不是 Chrome 安装开关。",
+                "顶层 web_search 只控制 Web Search，不控制 Chrome 插件。",
                 "浏览器是否真正接通：由 Chrome Profile、连接器授权、站点限制和新任务工具列表控制。",
             ),
             "goal": "Chrome 工具在新任务中出现，并且一次最小真实调用成功。",
             "actions": (
                 "先确认 features.plugins 和 Chrome 插件已启用；只有 Chrome 走 App/连接器路径时才检查 features.apps，再核对授权和正确的 Chrome Profile。",
-                "如果 supports_search_tool = false，且完成插件检查后 Chrome 仍未出现，先备份模型目录，再只把该值改为 true 做一次对照；如果已经是 true，不要仅因本症状修改它。",
+                "第三方 Responses 模型下 Chrome 缺失时，supports_search_tool = true 是模型目录里的首要兼容性疑点。先备份模型目录，只改成 false 做一次对照；已经是 false 时保持不动，继续检查其他环节。",
                 "新建任务并做一次真实 Chrome 操作；不要先重装插件，也不要修改顶层 web_search。",
             ),
             "verification": "新任务工具列表中出现 Chrome，并且一次最小烟雾测试成功。",
@@ -780,9 +786,9 @@ def _solution_result(
         )
         if language == "en":
             effect = (
-                "Deferred tool discovery is disabled; this is the leading compatibility suspect, not a unique root cause"
+                "plugin tools stay out of tool_search-based deferred discovery; this field is not the leading suspect"
                 if supports_search_tool is False
-                else "Deferred is eligible when namespace tools are enabled; the field alone does not explain a missing Chrome tool"
+                else "eligible plugin tools can move behind tool_search; this is the leading configuration suspect, not a unique root cause"
                 if supports_search_tool is True
                 else "the catalog does not describe the exposure mode"
             )
@@ -791,9 +797,9 @@ def _solution_result(
                 "Confirm the plugin gate, new-task tool list, and a live invocation separately."
             )
         effect = (
-            "Deferred 工具发现已关闭；这是首要兼容性疑点，但不是唯一根因"
+            "插件工具不会被这个字段放到 tool_search 后面；它不是当前首要疑点"
             if supports_search_tool is False
-            else "namespace tools 开启时可进入 Deferred；该字段本身不能解释 Chrome 缺失"
+            else "符合条件的插件工具会被放到 tool_search 后面；这是首要配置疑点，但不是唯一根因"
             if supports_search_tool is True
             else "目录未说明工具暴露方式"
         )
@@ -1319,18 +1325,54 @@ def _chrome_exact_targets(context: _HealthCheckContext) -> list[dict[str, str]]:
     provider_location = context.config(f"{prefix}wire_api", fallback_prefix=prefix)
     catalog_location, selected = _catalog_context(context)
     supports_search_tool = selected.get("supports_search_tool")
+    is_deepseek = any(
+        isinstance(selected.get(field), str)
+        and "deepseek" in selected[field].casefold()
+        for field in ("slug", "display_name")
+    )
     if supports_search_tool is False:
         support = context.text(
-            "false (Deferred removed; leading compatibility suspect, not sole cause)",
-            "false（Deferred 被移除；首要兼容性疑点，非唯一根因）",
+            "false (plugin/MCP tools stay out of tool_search-based deferred discovery"
+            + ("; matches the observed DeepSeek case)" if is_deepseek else ")"),
+            "false（插件/MCP 工具不走 tool_search 延迟发现"
+            + ("；符合当前 DeepSeek 实测兼容值）" if is_deepseek else "）"),
         )
     elif supports_search_tool is True:
         support = context.text(
-            "true (Deferred eligible with namespace tools; runtime verification still required)",
-            "true（namespace tools 开启时可进入 Deferred；仍需运行时验证）",
+            "true (eligible plugin/MCP tools move behind tool_search; leading compatibility suspect)",
+            "true（符合条件的插件/MCP 工具会放到 tool_search 后面；首要兼容性疑点）",
         )
     else:
         support = context.text("unset", "未设置")
+    tool_mode = _value(selected.get("tool_mode"), context.text("unset", "未设置"))
+    tool_mode = context.text(
+        f"{tool_mode} (Direct/Code Mode entry only; not the Chrome enablement switch)",
+        f"{tool_mode}（只影响 Direct/Code Mode 入口；不是 Chrome 启用开关）",
+    )
+    responses_lite_value = selected.get("use_responses_lite")
+    if responses_lite_value is True:
+        responses_lite = context.text(
+            "true (hosted Responses tools are omitted; not the Chrome enablement switch)",
+            "true（会停用托管 Responses 工具；不是 Chrome 启用开关）",
+        )
+    elif responses_lite_value is False:
+        responses_lite = context.text(
+            "false (hosted Responses tools remain eligible; not the Chrome enablement switch)",
+            "false（托管 Responses 工具仍可按 Provider 能力加载；不是 Chrome 启用开关）",
+        )
+    else:
+        responses_lite = context.text(
+            "unset (not the Chrome enablement switch)",
+            "未设置（不是 Chrome 启用开关）",
+        )
+    web_search = _value(
+        context.report.get("effective", {}).get("web_search"),
+        context.text("unset", "未设置"),
+    )
+    web_search = context.text(
+        f"{web_search} (Web Search only; separate from Chrome)",
+        f"{web_search}（只控制 Web Search；不控制 Chrome）",
+    )
     return [
         context.target(
             provider_location,
@@ -1345,12 +1387,17 @@ def _chrome_exact_targets(context: _HealthCheckContext) -> list[dict[str, str]]:
         context.target(
             catalog_location,
             "models[].tool_mode",
-            _value(selected.get("tool_mode"), context.text("unset", "未设置")),
+            tool_mode,
         ),
         context.target(
             catalog_location,
             "models[].use_responses_lite",
-            _value(selected.get("use_responses_lite"), context.text("unset", "未设置")),
+            responses_lite,
+        ),
+        context.target(
+            context.config("web_search"),
+            "web_search",
+            web_search,
         ),
         *feature_targets,
         *runtime_targets,

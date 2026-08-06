@@ -377,13 +377,13 @@ def compatibility_report(
             next_step = "continue_provider_specific_checks"
             exposure_inference = "not_applicable"
         elif observed is False:
-            assessment = "deferred_search_disabled"
-            next_step = "verify_declared_exposure_and_live_invocation"
-            exposure_inference = "deferred_exposure_removed_by_false"
+            assessment = "direct_tool_exposure_configured"
+            next_step = "verify_plugin_gates_and_live_invocation"
+            exposure_inference = "mcp_tools_not_deferred_by_search_tool"
         elif observed is True:
-            assessment = "deferred_exposure_eligible"
-            next_step = "verify_namespace_tools_and_live_invocation"
-            exposure_inference = "deferred_only_if_namespace_tools_enabled"
+            assessment = "deferred_tool_search_suspect"
+            next_step = "back_up_catalog_compare_false_and_verify"
+            exposure_inference = "namespace_mcp_tools_deferred_behind_tool_search"
         else:
             assessment = "field_unavailable"
             next_step = "verify_catalog_field_and_runtime"
@@ -402,21 +402,21 @@ def compatibility_report(
                 "namespace_tools_feature_state": "not_checked",
                 "exposure_inference": exposure_inference,
                 "semantics_source": "official_codex_source",
-                "semantics_as_of": "2026-08-05",
+                "semantics_as_of": "2026-08-06",
                 "detected_codex_version": codex_version,
                 "runtime_verification_required": True,
             }
         )
-        if applicable and observed is False:
+        if applicable and observed is True:
             findings.append(
                 finding(
-                    "compat.chrome.supports_search_tool_false",
-                    "info",
-                    "模型关闭了 Deferred 工具发现",
-                    "用户报告 Chrome 不可用，且活动第三方 Responses 模型设置 supports_search_tool = false。该值会关闭 search_tool_enabled；namespace tools 开启时，Deferred 暴露会被移除，只剩插件声明允许的 Direct 或 Code 路径。如果 Chrome 依赖 Deferred，它可能不出现在新任务中，因此这是首要兼容性疑点，但不是唯一根因。",
-                    "先核对实际模型目录条目、Chrome 的工具暴露证据和新任务工具列表，再做一次最小真实调用。只有证据表明 Chrome 依赖 Deferred 时，才备份模型目录后对 supports_search_tool = true 做受控对照；不要修改顶层 web_search，也不要因 CLI 插件清单失败而重装插件。",
+                    "compat.chrome.supports_search_tool_true",
+                    "warning",
+                    "模型把插件工具放到了 tool_search 后面",
+                    "用户报告 Chrome 不可用，且活动第三方 Responses 模型设置 supports_search_tool = true。该值会启用 search_tool_enabled；namespace MCP tools 开启时，符合条件的插件工具会从初始工具列表移到 Deferred 暴露，等待模型先调用 tool_search。第三方模型或 Provider 如果不能正确使用这条发现路径，Chrome 可能不会出现或无法调用，因此这是首要配置兼容性疑点，但不是唯一根因。",
+                    "先备份实际生效的模型目录，只把 supports_search_tool 改为 false 做一次受控对照；完全重启 Codex、新建任务，并核对 Chrome 工具列表和一次最小真实调用。不要修改顶层 web_search，也不要因 CLI 插件清单失败而重装插件。",
                     status="unverified",
-                    category="verification",
+                    category="diagnostic",
                 )
             )
     rules: list[dict[str, Any]] = []
