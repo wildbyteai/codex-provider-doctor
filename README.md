@@ -8,11 +8,11 @@ Status: alpha. The tool reports findings and suggested diffs. It does not edit C
 
 ## Fix the five problems first
 
-1. **Keep the official sign-in**: only for a custom third-party Provider that intentionally uses a direct token, put `requires_openai_auth = true` and `experimental_bearer_token` in that Provider's `[model_providers.<id>]` table. If `env_key/auth` already exists, migrate instead of stacking methods. Separately confirm that `codex login status` reports ChatGPT sign-in. Plaintext-token risk remains an independent warning.
-2. **Restore plugins, official plugins, or Skills**: restart Codex completely and open a new task, then separate local Skill installation, Plugins/Settings enablement and authorization, and actual tool exposure. A failed CLI inventory is not a reason to reinstall.
-3. **Fix the model name**: identify the effective `model_catalog_json`, make top-level `model` match exactly one `models[].slug`, and inspect that entry's `display_name`. When those fields are already correct, do not edit them again. If App Server `model/list` returns the model on Windows Desktop but the picker still omits it or shows only `Custom`, prioritize the matching Desktop-picker defect and use a config switcher, CLI, or Profiles as safe workarounds. The doctor provides a conditional reminder; it does not observe the UI or remote allowlist automatically.
+1. **Keep the official sign-in**: for a custom third-party Provider, put `requires_openai_auth = true` in that Provider's `[model_providers.<id>]` table. The third-party request credential is evaluated separately: `env_key` has priority, then `experimental_bearer_token`, then the retained official authentication. A configured but missing `env_key` fails without falling back. Provider command authentication (`auth`) is the one mutually exclusive path. Separately confirm ChatGPT sign-in; plaintext-token risk remains an independent warning.
+2. **Restore plugins, official plugins, or Skills**: check `features.plugins` first, then Plugins/Settings, authorization, and a new task. `features.apps` controls Apps/connectors, while `features.remote_plugin` controls the remote plugin directory; neither is the global plugin switch. A failed CLI inventory is not a reason to reinstall.
+3. **Fix the model name**: identify the effective `model_catalog_json`, then follow Codex's longest `models[].slug` prefix match. If that misses and `model` has one simple namespace such as `vendor/model-name`, Codex retries with the suffix; otherwise it uses fallback metadata instead of blocking the request. Inspect the selected entry's `display_name`, but do not keep editing a valid catalog merely because Windows Desktop shows `Custom`. Use App Server, the picker, and a real request as separate evidence.
 4. **Recover older tasks**: aggregate the Providers stored on affected tasks. First switch back to those Providers, use an all-provider view when available, or update Codex. Consider binding migration only after quitting Codex, backing up the database plus WAL/SHM, showing the exact field diff, and obtaining another confirmation.
-5. **Restore Chrome calls**: inspect the selected model's `supports_search_tool` early, but do not treat it as a complete exposure switch. In the 2026-08-05 official source, `false` forces the namespace-tool planning branch to Direct; `true` permits Deferred only when namespace tools are also enabled. Actual Chrome declarations and the live task tool list still require verification. Then check Plugins/Settings, official sign-in, the Chrome profile, connector authorization, and a live invocation.
+5. **Restore Chrome calls**: inspect the selected model's `supports_search_tool` early. With a third-party Responses Provider and a reported Chrome failure, `false` is the leading compatibility suspect because it disables `search_tool_enabled`; when namespace tools are enabled, Deferred exposure is removed and only the plugin's declared Direct or Code paths remain. This is not a unique root cause. `true` only makes Deferred eligible. In both cases, verify `features.plugins`, Plugins/Settings, authorization, the new-task tool list, and a live invocation.
 
 ## Default report shape
 
@@ -56,13 +56,13 @@ If permissions require running from a temporary repository copy, keep the real `
 - The actual `model_catalog_json` selected by those layers. It does not assume a filename such as `models.custom.json`.
 - Catalog model count, without dumping every model entry.
 - Relative catalog paths, resolved from the config file that declared the winning value.
-- The active `model` and its exact `models[].slug` match.
+- The active `model` and the winning longest `models[].slug` prefix, including the one-level namespace retry and fallback-metadata case.
 - Model display metadata, `tool_mode`, `supports_search_tool`, `use_responses_lite`, context window, and compact limits.
 - A conditional Windows Desktop picker reminder when the catalog fields are already valid, keeping catalog, App Server, picker, and live-request evidence separate.
 - Five consistent health-check cards covering current result, exact locations/key parameters, controls, desired state, recovery actions, and verification before full technical evidence.
 - Counts of locally discovered user and trusted-project Skills without reporting their names. Untrusted-project Skills are not scanned and make coverage explicitly partial.
 - Symptom-aware Chrome compatibility triage for any selected third-party Responses model, including the runtime conditions around Direct versus Deferred namespace-tool exposure.
-- Provider authentication conflicts involving `requires_openai_auth`, `env_key`, command authentication, or a direct bearer token, with acknowledged intent kept separate from security risk.
+- Provider request-credential precedence (`env_key`, direct bearer token, retained official authentication), missing-environment behavior, and the command-authentication exclusivity rule, with acknowledged intent kept separate from security risk.
 - Official Codex login state plus a plugin count and exact Chrome status when the redacted, read-only CLI probe succeeds; otherwise the inventory remains explicitly unverified. Other plugin names are not reported.
 - Chrome installation and enablement signals, followed by a manual acceptance checklist.
 - Read-only aggregate task counts grouped by `model_provider`, including total, unarchived, and archived rows.
@@ -90,7 +90,7 @@ The CLI plugin probe is one evidence source, not the final authority on runtime 
 
 If the CLI command fails or returns an unsupported format, the plugin inventory is `unverified`. The finding is informational and does not change exit code `0` by itself. A successful CLI inventory that does not confirm Chrome is also lower-priority evidence, not proof of a runtime failure. Do not reinstall plugins or clear caches when the UI or a live invocation already works; consider repair only when those stronger checks also fail.
 
-When the user explicitly reports that Chrome is unavailable, prefer `--problem chrome-unavailable`; the lower-level `--symptom chrome-plugin-unavailable` flag remains available for existing integrations. In the official source snapshot dated 2026-08-05, `supports_search_tool = false` forces the namespace-tool planning branch to Direct, but does not prove that Chrome itself is directly exposed or present. `true` permits Deferred only when namespace tools are also enabled; otherwise Direct remains possible. The doctor therefore records the field near the front of triage but keeps the actual exposure path, tool declarations, Settings state, and live invocation unverified. It never infers or edits top-level `web_search` from this check.
+When the user explicitly reports that Chrome is unavailable, prefer `--problem chrome-unavailable`; the lower-level `--symptom chrome-plugin-unavailable` flag remains available for existing integrations. In the official source snapshot dated 2026-08-05, `supports_search_tool = false` disables `search_tool_enabled`. When namespace tools are enabled, Deferred exposure is removed and only the plugin's declared Direct or Code paths remain. That makes `false` the leading static compatibility suspect when Chrome is missing, but it does not prove a unique root cause or reveal Chrome's actual exposure declaration. `true` only makes Deferred eligible. The doctor therefore keeps plugin state, the new-task tool list, and live invocation as separate evidence. It never infers or edits top-level `web_search` from this check.
 
 ## Windows Desktop model-picker reminder
 
@@ -98,7 +98,7 @@ This is intentionally not presented as fully automatic detection. The doctor can
 
 Treat additional Desktop picker filtering as the leading known compatibility suspect only when the manual evidence chain is complete:
 
-1. The effective catalog uniquely matches the active `slug` and has a non-empty `display_name`.
+1. The effective catalog matches the active model through the intended longest slug prefix and has a non-empty `display_name`.
 2. App Server `model/list` returns that model.
 3. The Windows Desktop picker still omits it or shows only `Custom`, `Custom High/Max`, an incorrect name, or incorrect metadata.
 4. A real request in a new task or a CLI invocation is still required to prove actual model routing; the UI label is not proof.
@@ -241,9 +241,9 @@ requires_openai_auth = true
 experimental_bearer_token = "<third-party-token>"
 ```
 
-This pattern is for a custom third-party Provider. Do not add it to the built-in `openai` Provider. If the active third-party Provider already uses `env_key` or an `[model_providers.<id>.auth]` command, do not stack the direct-token fields on top: back up the configuration, show one field-level migration diff, remove the old request-authentication method, and add the confirmed dual-authentication fields in the same controlled change.
+This pattern is for a custom third-party Provider. Do not add it to the built-in `openai` Provider. `requires_openai_auth` can coexist with either `env_key` or `experimental_bearer_token`. Request credentials are selected in this order: `env_key`, direct bearer token, then the retained official authentication. If `env_key` is configured but absent, the request fails instead of falling back. An `[model_providers.<id>.auth]` command is mutually exclusive with all three fields and requires a controlled migration.
 
-As of 2026-08-05, the [current Codex provider-authentication path](https://github.com/openai/codex/blob/main/codex-rs/model-provider/src/provider.rs) retains the official ChatGPT/Codex account state with `requires_openai_auth = true`, while the explicit Provider bearer token takes precedence for third-party requests. `--problem keep-official-login` records this intent automatically. The legacy `--acknowledge provider.auth.openai_with_direct_token` form remains supported. Neither form hides the independent plaintext-token warning.
+As of 2026-08-05, the current Codex provider-authentication path retains the official ChatGPT/Codex account state with `requires_openai_auth = true`, while an explicit Provider bearer token takes precedence for third-party requests. `--problem keep-official-login` selects the recovery guide but does not confirm intent. Use `--acknowledge provider.auth.openai_with_direct_token` only after the user explicitly confirms the direct-token design. The acknowledgement never hides the independent plaintext-token warning.
 
 Diagnose these independently:
 

@@ -52,8 +52,8 @@
 
 1. 解析模型目录 JSON，确认顶层是对象，models 是数组。
 2. 先报告 models 条目总数，但不要完整输出所有模型条目。
-3. 用最终生效的 model 精确匹配 models[].slug，大小写、连字符和版本后缀都必须一致。
-4. 必须恰好匹配一条；零条或重复都要报错。
+3. 先按最长 `models[].slug` 前缀匹配；如果没有命中，且最终 `model` 只有一层简单命名空间（如 `vendor/model-name`），去掉斜杠前缀后再按最长前缀重试。
+4. 如果仍未命中，说明 Codex 会使用回退模型元数据而不是阻断请求；只有需要自定义名称或能力字段时才建议补目录条目。重复的获胜 slug 仍要报告为目录歧义。
 5. 只输出活动条目的这些字段：slug、display_name、context_window、effective_context_window_percent、auto_compact_token_limit、tool_mode、supports_search_tool、use_responses_lite。
 6. display_name 缺失或为空时，说明这会导致模型列表只显示 slug 或名称不清楚，但不要替我编造名称。
 7. 如果 slug 和非空 display_name 已经正确，不要继续建议修改字段，也不要反复清缓存。先确认界面使用的是这份生效目录，再按下面的 Windows Desktop 条件式提醒判断。
@@ -69,8 +69,8 @@
 如果我明确报告“第三方模型下 Chrome 插件不可用”，先把活动模型目录条目的实际 `supports_search_tool` 放到兼容性排查前部，并按当前工具暴露语义解释：
 
 - 仅当当前是第三方 Responses Provider 时适用；不要限定为 DeepSeek。
-- `supports_search_tool = false` 时，按 2026-08-05 官方源码会让 namespace 工具规划条件回落到 Direct；这不能证明 Chrome 自身声明为 Direct 或已经进入真实任务工具列表，这个值本身也不是故障证据。
-- `supports_search_tool = true` 时，只有 namespace tools 同时启用才允许 Deferred，否则仍可能走 Direct；不能仅凭这个字段判定 Chrome 暴露路径或根因。
+- `supports_search_tool = false` 时，会关闭 `search_tool_enabled`；namespace tools 开启时，Deferred 暴露会被移除，只剩插件声明允许的 Direct 或 Code 路径。第三方 Responses Provider 下已经出现 Chrome 缺失时，把它标成首要兼容性疑点，但不能断言唯一根因，也不能据此知道 Chrome 自身声明了哪种暴露方式。
+- `supports_search_tool = true` 时，namespace tools 开启后才具备 Deferred 条件；这个值本身不能解释 Chrome 缺失。
 - 把模型目录静态证据、插件清单证据和真实调用烟雾测试分开写；真实调用仍是更强证据。
 - 不要自动推断或修改顶层 `web_search`，也不要因为 CLI 插件清单探针失败就建议重装插件。
 
@@ -89,11 +89,11 @@
 1. 读取最终 model_provider，并定位对应的 [model_providers.<id>]。
 2. 检查 name、base_url 主机名、wire_api、requires_openai_auth、env_key、auth 和 experimental_bearer_token 是否存在。
 3. requires_openai_auth 必须位于活动 `[model_providers.<id>]` 块内。顶层同名字段不能算作活动 Provider 配置。
-4. 对已经确认的双认证设计，`requires_openai_auth = true` 保留官方 ChatGPT/Codex 账户状态，`experimental_bearer_token` 优先用于第三方 Provider 请求。
+4. 对已经确认的双认证设计，`requires_openai_auth = true` 保留官方 ChatGPT/Codex 账户状态；第三方请求凭据按 `env_key` → `experimental_bearer_token` → 保留的官方认证选择。
 5. 这套双认证只适用于自定义第三方 Provider，不要套到内置 `openai` Provider。
-6. 用户明确要求保留官方登录态时，把这个组合标记为 acknowledged / intentional；不能再建议删除 `requires_openai_auth` 或改成 `false`。
-7. 如果当前 Provider 已经使用 `env_key` 或 `[model_providers.<id>.auth]` 命令认证，不要直接叠加双认证字段；先给出备份方案和完整字段迁移 diff，在一次受控修改中切换请求认证方式。
-8. `env_key`、`experimental_bearer_token` 和 `[model_providers.<id>.auth]` 的其他组合仍按当前版本实际优先级单独判断，不要把双认证设计混入普通冲突。
+6. 选择 `--problem keep-official-login` 只表示要查看这个体检项，不等于确认直接 Token 组合的设计意图；只有用户明确确认后才加 `--acknowledge provider.auth.openai_with_direct_token`，并标记为 acknowledged / intentional。
+7. `requires_openai_auth` 可以与 `env_key` 或 `experimental_bearer_token` 共存。配置了 `env_key` 但当前环境未注入时，请求直接失败，不会回退到直接 Token 或官方认证。
+8. `[model_providers.<id>.auth]` 命令认证与 `requires_openai_auth`、`env_key`、`experimental_bearer_token` 互斥；只有切换这条路径时才给出备份方案和完整字段迁移 diff。
 9. 插件是否真实可用仍需新任务、设置页面和实际调用验证，不能只从认证字段推断。
 10. Token 明文存储必须作为独立 warning 保留，不能因为认证意图已确认而隐藏。
 11. 对 env_key 只检查当前启动环境中是否存在非空值，不读取或输出值。
@@ -103,7 +103,7 @@
 1. 运行 codex login status，只保留 ChatGPT、API key、access token、signed out 或 unknown 这类结果。
 2. 本地 Skill 只统计数量，不输出名称。用户级 Skill 可以只读计数；项目级 Skill 只有在项目已受信任时才扫描，项目不可信或状态未知时跳过并标记覆盖不完整，不能为了完成检查而修改信任状态。
 3. 运行 codex plugin list --json。兼容顶层 installed/available 结构，也兼容旧数组结构；报告只保留插件总数，以及精确匹配到的 Chrome installed 和 enabled 聚合状态，不输出其他插件名称或标识符。
-4. 检查 features.apps 和 features.remote_plugin 是否被关闭。
+4. 先检查 `features.plugins`；它是插件系统总开关。再分别检查 `features.apps`（只控制 App/连接器）和 `features.remote_plugin`（只控制远程插件目录）。
 5. 确认 Chrome 插件已安装并开启。
 6. 按证据强弱判断插件与 Chrome 状态：实际调用成功 > 当前任务已提供目标工具或设置页面可见 > codex plugin list --json 成功 > 静态配置推断。CLI 探针失败或输出无法解析，只表示清单未核验，必须标成 info / unverified，单独出现时不改变退出码 0；界面或实际调用正常时，不建议重装插件或清理缓存。
 7. 人工检查必须列出：

@@ -144,7 +144,11 @@ class RuntimeProbeTests(unittest.TestCase):
                     "plugins": {
                         "probe": "ok",
                         "inventory_status": "verified",
-                        "features": {"apps": True, "remote_plugin": True},
+                        "features": {
+                            "plugins": True,
+                            "apps": True,
+                            "remote_plugin": True,
+                        },
                         "inventory_count": 2,
                         "chrome": {"found": True, "installed": True, "enabled": True},
                     },
@@ -293,7 +297,11 @@ class RuntimeProbeTests(unittest.TestCase):
                     "finding_codes": [finding["code"] for finding in report["findings"]],
                 },
                 {
-                    "features": {"apps": False, "remote_plugin": False},
+                    "features": {
+                        "plugins": True,
+                        "apps": False,
+                        "remote_plugin": False,
+                    },
                     "finding_codes": [
                         "plugins.feature.apps_disabled",
                         "plugins.feature.remote_plugin_disabled",

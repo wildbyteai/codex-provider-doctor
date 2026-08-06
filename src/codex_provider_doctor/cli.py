@@ -110,8 +110,6 @@ def _execute(args: argparse.Namespace) -> int:
     explicitly_requested_problems = list(dict.fromkeys(args.problem))
     requested_problems = explicitly_requested_problems or list(PROBLEM_IDS)
     acknowledgements = set(args.acknowledge)
-    if "keep-official-login" in explicitly_requested_problems:
-        acknowledgements.add("provider.auth.openai_with_direct_token")
     provider = provider_report(config, findings, acknowledgements)
     command_checks = not args.no_command_checks
     codex_binary = shutil.which("codex") if command_checks else None

@@ -26,10 +26,13 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Recognized `requires_openai_auth = true` under the active `[model_providers.<id>]` plus `experimental_bearer_token` as the confirmed dual-authentication design: official account state is retained while the explicit Provider token takes precedence for third-party requests.
-- Kept the dual-authentication guide off the built-in OpenAI Provider and required a controlled authentication-method migration when `env_key` or command authentication already exists.
+- Kept the dual-authentication guide off the built-in OpenAI Provider; documented request-credential precedence as `env_key` → direct bearer token → retained official authentication, with no fallback when a configured `env_key` is missing. Command authentication remains the mutually exclusive path.
+- Stopped treating `--problem keep-official-login` as an automatic acknowledgement; the direct-token design is acknowledged only through the explicit acknowledgement flag.
+- Matched model-catalog entries with Codex's longest slug-prefix rule, including its one-level namespace retry, and reported fallback metadata as non-blocking.
+- Added `features.plugins` as the plugin-system gate while keeping `features.apps` scoped to Apps/connectors and `features.remote_plugin` scoped to the remote directory.
 - Limited project Skill counting to trusted projects and marked skipped or unreadable coverage explicitly.
 - Scoped Direct/Deferred Chrome branch inference to an official-source date, namespace-tools state, and the locally detected Codex version, with runtime verification always required.
-- Reworked Chrome triage so `supports_search_tool` is not treated as a complete exposure switch: `false` forces the namespace planning branch to Direct, while `true` permits Deferred only when namespace tools are also enabled.
+- Reworked Chrome triage so `supports_search_tool = false` is the leading compatibility suspect for a reported Chrome failure: it disables `search_tool_enabled`, removes Deferred exposure when namespace tools are enabled, and leaves only the plugin's declared Direct or Code paths. The report still requires runtime evidence and never claims a unique root cause. `true` only makes Deferred eligible.
 - Kept `features.remote_plugin = false` as a possible remote-directory limitation rather than proof that an already installed Chrome tool is unavailable.
 - Put no-write history recovery first: switch back to the stored Provider, use an all-Provider view, or update Codex before considering database migration.
 - Avoided false recovery advice when `display_name` is already correct, and avoided reporting “no Provider mismatch” when the task database was not found.

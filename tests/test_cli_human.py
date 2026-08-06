@@ -74,7 +74,9 @@ class HumanReportTests(unittest.TestCase):
                         "[model_providers.thirdparty]",
                         'base_url = "https://api.example.invalid/v1"',
                         "requires_openai_auth = true",
-                        'env_key = "THIRD_PARTY_API_KEY"',
+                        "",
+                        "[model_providers.thirdparty.auth]",
+                        'command = "credential-helper"',
                     ]
                 ),
                 encoding="utf-8",
@@ -90,9 +92,9 @@ class HumanReportTests(unittest.TestCase):
             )
 
             self.assertEqual(result.returncode, 2, result.stderr)
-            self.assertIn("结论：发现 2 个错误，0 个警告", result.stdout)
-            self.assertIn("OpenAI 认证会忽略第三方环境变量", result.stdout)
-            self.assertIn("如果该接口使用自己的 API Key", result.stdout)
+            self.assertIn("结论：发现 1 个错误，0 个警告", result.stdout)
+            self.assertIn("Provider 命令认证与其他认证字段冲突", result.stdout)
+            self.assertIn("只保留命令认证或其他 Provider 认证字段中的一条路径", result.stdout)
             self.assertIn("auth.json 内容：未读取", result.stdout)
 
     def test_acknowledged_auth_design_separates_login_provider_requests_and_plaintext_risk(self) -> None:
@@ -245,7 +247,7 @@ class HumanReportTests(unittest.TestCase):
             self.assertNotIn("tool_mode：code_mode_only → direct（建议修改）", result.stdout)
             self.assertIn("不是所有第三方模型的默认值", result.stdout)
 
-    def test_chrome_symptom_report_keeps_runtime_dependent_exposure_ahead_of_cli_inventory_gap(self) -> None:
+    def test_chrome_symptom_report_puts_false_compatibility_suspect_ahead_of_cli_inventory_gap(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             codex_home = root / "codex-home"
@@ -259,7 +261,7 @@ class HumanReportTests(unittest.TestCase):
       "slug": "vendor-model-v1",
       "display_name": "Vendor Model V1",
       "tool_mode": "code_mode_only",
-      "supports_search_tool": true,
+      "supports_search_tool": false,
       "use_responses_lite": true
     }
   ]
@@ -304,12 +306,12 @@ class HumanReportTests(unittest.TestCase):
             self.assertIn("Chrome / 插件兼容性排查", result.stdout)
             self.assertIn("证据类型：模型目录静态字段", result.stdout)
             self.assertIn("真实调用烟雾测试：诊断器未执行", result.stdout)
-            compatibility_index = result.stdout.index("supports_search_tool = true 不能单独确定 Chrome 暴露路径")
+            compatibility_index = result.stdout.index("模型关闭了 Deferred 工具发现")
             plugin_index = result.stdout.index("CLI 插件探针未能核验实际状态")
             self.assertLess(compatibility_index, plugin_index)
             self.assertIn("不要因 CLI 插件清单失败而重装插件", result.stdout)
 
-    def test_chrome_report_puts_disabled_app_integration_before_runtime_dependent_exposure(self) -> None:
+    def test_chrome_report_puts_the_disabled_plugin_system_before_model_compatibility(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             codex_home = root / "codex-home"
@@ -321,7 +323,7 @@ class HumanReportTests(unittest.TestCase):
                             {
                                 "slug": "vendor-model-v1",
                                 "display_name": "Vendor Model V1",
-                                "supports_search_tool": True,
+                                "supports_search_tool": False,
                             }
                         ]
                     }
@@ -340,7 +342,7 @@ class HumanReportTests(unittest.TestCase):
                         'wire_api = "responses"',
                         "",
                         "[features]",
-                        "apps = false",
+                        "plugins = false",
                     ]
                 ),
                 encoding="utf-8",
@@ -358,9 +360,9 @@ class HumanReportTests(unittest.TestCase):
             )
 
             self.assertEqual(result.returncode, 1, result.stderr)
-            self.assertIn("首要诊断：App 与连接器能力被关闭", result.stdout)
-            feature_index = result.stdout.index("App 与连接器能力被关闭")
-            exposure_index = result.stdout.index("supports_search_tool = true 不能单独确定 Chrome 暴露路径")
+            self.assertIn("首要诊断：插件系统被关闭", result.stdout)
+            feature_index = result.stdout.index("插件系统被关闭")
+            exposure_index = result.stdout.index("模型关闭了 Deferred 工具发现")
             self.assertLess(feature_index, exposure_index)
             self.assertIn("恢复 Chrome 调用【插件能力被关闭】", result.stdout)
 

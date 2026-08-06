@@ -14,11 +14,11 @@
 
 ## 五个问题，先这样处理
 
-1. **保留官方登录态**：只针对已经明确选择“直接 Token”的自定义第三方 Provider，把 `requires_openai_auth = true` 与 `experimental_bearer_token` 放在该 Provider 的 `[model_providers.<id>]` 内；已有 `env_key/auth` 时必须迁移，不能叠加。再单独确认 `codex login status` 显示 ChatGPT 登录。明文 Token 风险仍独立告警。
-2. **插件、官方插件或 Skill 不可用**：先完全重启 Codex 并新建任务，再区分“本地 Skill 是否仍安装”“Plugins/Settings 是否启用并授权”“新任务是否实际暴露工具”。CLI 清单失败不能作为重装依据。
-3. **模型名称不正确**：确认实际生效的 `model_catalog_json`，让顶层 `model` 精确匹配唯一的 `models[].slug`，并检查该条目的 `display_name`。字段已经正确时不要重复修改；如果 Windows Desktop 中 App Server 的 `model/list` 已返回模型，但下拉框仍遗漏它或只显示 `Custom`，优先参考 Desktop 选择器已知同类缺陷，并用配置切换器、CLI 或 Profile 安全绕过。doctor 只做条件式提醒，不会自动观察界面或远程白名单。
+1. **保留官方登录态**：对自定义第三方 Provider，把 `requires_openai_auth = true` 放在该 Provider 的 `[model_providers.<id>]` 内。第三方请求凭据另算：优先使用 `env_key`，其次是 `experimental_bearer_token`，最后才是保留的官方认证；配置了 `env_key` 但没有注入时会直接失败，不会回退。只有命令认证 `auth` 与这些字段互斥。官方登录和明文 Token 风险仍要分别检查。
+2. **插件、官方插件或 Skill 不可用**：先检查 `features.plugins`，再检查 Plugins/Settings、授权和新任务工具列表。`features.apps` 只控制 App/连接器，`features.remote_plugin` 只控制远程插件目录，都不是插件总开关。CLI 清单失败不能作为重装依据。
+3. **模型名称不正确**：确认实际生效的 `model_catalog_json`，再按 Codex 的最长 `models[].slug` 前缀规则匹配；首次未命中且 `model` 只有一层简单命名空间（如 `vendor/model-name`）时，会去掉前缀重试，仍未命中则使用回退元数据，不会阻断请求。检查命中条目的 `display_name`，但不要只因为 Windows Desktop 显示 `Custom` 就反复改 JSON。
 4. **历史任务消失**：只读统计任务绑定的旧 Provider。先切回旧 Provider、使用可用的全部 Provider 视图或升级 Codex；只有确需迁移绑定时，才在退出 Codex、备份数据库及 WAL/SHM、展示字段 diff 并再次确认后处理。
-5. **Chrome 无法调用**：先看活动模型的 `supports_search_tool`，但不能把它当成完整的暴露开关。按 2026-08-05 官方源码，`false` 会让 namespace 工具规划分支进入 Direct；`true` 只有在 namespace tools 同时启用时才允许 Deferred。Chrome 自身声明和真实任务工具列表仍需核验。之后再核对 Plugins/Settings、官方登录、Chrome Profile、连接器授权和真实调用。
+5. **Chrome 无法调用**：先看活动模型的 `supports_search_tool`。第三方 Responses Provider 下已经出现 Chrome 缺失时，`false` 是首要兼容性疑点：它会关闭 `search_tool_enabled`；namespace tools 开启时，Deferred 暴露会被移除，只剩插件声明允许的 Direct 或 Code 路径。但这不是唯一根因。`true` 只表示具备 Deferred 条件。两种情况都要继续核对 `features.plugins`、Plugins/Settings、授权、新任务工具列表和真实调用。
 
 ## 默认报告长什么样
 
@@ -65,13 +65,13 @@ Skill 和命令行工具使用同一套诊断代码。Skill 不会全局安装 P
 - 不假设文件一定叫 `models.custom.json`、`models.json` 或其他固定名字。
 - 模型目录条目总数，但不会把所有模型条目完整输出。
 - 相对路径按“声明这个值的配置文件所在目录”解析，不按猜测搜索。
-- 当前 `model` 是否能在 `models[].slug` 中唯一匹配。
+- 当前 `model` 最终命中的最长 `models[].slug` 前缀，以及单层命名空间重试和回退元数据情况。
 - `display_name`、`tool_mode`、`supports_search_tool`、`use_responses_lite` 和上下文窗口配置。
 - 当模型目录字段已经正确时，给出 Windows Desktop 选择器条件式提醒，并明确区分静态目录、App Server 列表、桌面下拉框和真实请求四层证据。
 - 默认把 5 个问题分别整理为“当前结果、具体位置/关键参数、受什么控制、目标状态、怎么处理、怎么确认”；默认报告直接给出安全归一化的文件/界面位置、参数和当前值，`--details` 再展开完整配置层与技术证据。
 - 只统计用户级和可信项目级本地 Skill 数量，不输出 Skill 名称；项目不可信时不扫描项目 Skill，并明确标记覆盖不完整。
-- 面向一般第三方 Responses 模型的 Chrome 症状排查，并说明 Direct 与 Deferred namespace 工具暴露还受运行时条件影响。
-- 活动 Provider 的 `requires_openai_auth`、`env_key`、命令认证和明文 Token 冲突，并把已确认意图与独立安全风险分开。
+- 面向一般第三方 Responses 模型的 Chrome 症状排查，把 `supports_search_tool = false` 的 Deferred 路径缺失放到前部，同时保留插件声明和运行时验证边界。
+- 活动 Provider 的请求凭据优先级、缺失 `env_key` 不回退、命令认证互斥规则，以及 `requires_openai_auth`、官方登录和明文 Token 风险的独立状态。
 - 官方 Codex 登录方式，以及 CLI 只读探针成功时的插件总数和 Chrome 开启状态；探针失败时明确保留为“未核验”，不会在报告里列出其他插件名称。
 - 历史任务按 `model_provider` 分组的总数、未归档数和已归档数。
 
@@ -86,7 +86,7 @@ CLI 插件探针只是一个证据来源，不是运行时状态的最终结论�
 
 如果 CLI 命令失败或返回当前工具不认识的格式，只能说明插件清单尚未核验。它会被记录为 `info / unverified`，单独出现时不会把退出码从 `0` 变成 `1`。即使 CLI 清单成功但没有确认 Chrome，也仍是低优先级辅助证据，不等于真实调用失败。设置页面或实际调用已经正常时，不要重装插件或清理缓存；只有这些更强证据也失败时，才继续考虑修复。
 
-如果用户明确报告 Chrome 不可用，优先使用 `--problem chrome-unavailable`；底层参数 `--symptom chrome-plugin-unavailable` 继续兼容已有集成。按 2026-08-05 官方源码，`supports_search_tool = false` 会让 namespace 工具规划分支进入 Direct，但不能证明 Chrome 已经直接暴露或进入工具列表；`true` 只有在 namespace tools 同时启用时才允许 Deferred，否则仍可能是 Direct。诊断器会把该字段放在排查前部，但真实暴露路径、工具自身声明、设置页面和实际调用必须分开核验。这个检查不会推断或修改顶层 `web_search`。
+如果用户明确报告 Chrome 不可用，优先使用 `--problem chrome-unavailable`；底层参数 `--symptom chrome-plugin-unavailable` 继续兼容已有集成。按 2026-08-05 官方源码，`supports_search_tool = false` 会关闭 `search_tool_enabled`；namespace tools 开启时，Deferred 暴露会被移除，只剩插件声明允许的 Direct 或 Code 路径。因此在第三方 Responses Provider 下 Chrome 缺失时，`false` 是首要静态兼容性疑点，但不能据此断言唯一根因，也不能知道 Chrome 自身声明了哪种暴露方式。`true` 只表示具备 Deferred 条件。设置页面、新任务工具列表和真实调用仍要分开核验；这个检查不会推断或修改顶层 `web_search`。
 
 ## Windows Desktop 模型选择器提醒
 
@@ -94,7 +94,7 @@ CLI 插件探针只是一个证据来源，不是运行时状态的最终结论�
 
 只有下面的人工证据链同时成立时，才把 Desktop 选择器额外过滤作为首要已知兼容性疑点：
 
-1. 实际生效的模型目录中，活动 `slug` 唯一匹配，且 `display_name` 非空。
+1. 实际生效的模型目录中，活动 `model` 已按最长前缀规则命中预期 `slug`，且 `display_name` 非空。
 2. App Server 的 `model/list` 已经返回该模型。
 3. Windows Desktop 下拉框仍遗漏模型，或只显示 `Custom`、`Custom High/Max`、错误名称或错误元数据。
 4. 如果要证明模型实际可用，还要用新任务真实请求或 CLI 调用完成烟雾测试；界面标签不能证明实际路由。
@@ -125,7 +125,7 @@ requires_openai_auth = true
 experimental_bearer_token = "<第三方 Token>"
 ```
 
-这套写法只适用于自定义第三方 Provider，不要套到内置 `openai` Provider。若活动第三方 Provider 已经使用 `env_key` 或 `[model_providers.<id>.auth]` 命令认证，不能直接叠加上述字段；应先备份配置并展示一次完整的逐字段迁移 diff，在同一次受控修改中移除旧请求认证方式，再加入已确认的双认证字段。
+这套写法只适用于自定义第三方 Provider，不要套到内置 `openai` Provider。`requires_openai_auth` 可以与 `env_key` 或 `experimental_bearer_token` 共存。请求凭据优先级是 `env_key` → 直接 Token → 保留的官方认证；配置了 `env_key` 但没有注入时，请求直接失败，不会回退。只有 `[model_providers.<id>.auth]` 命令认证与这三个字段互斥，切换时才需要先备份并展示逐字段迁移 diff。
 
 关键是 `requires_openai_auth = true` 必须位于活动 `[model_providers.<id>]` 内，不能放在 TOML 顶层。截至 2026-08-05，[当前 Codex Provider 认证源码](https://github.com/openai/codex/blob/main/codex-rs/model-provider/src/provider.rs)会保留官方 ChatGPT/Codex 账户状态，同时让显式 Provider Token 优先用于第三方请求。插件是否真实可用仍需新任务和实际调用验证；明文 Token 风险也必须继续单独警告。
 
@@ -142,6 +142,8 @@ Chrome、插件、连接器或 MCP 是否安装、开启并完成授权，属于
 ```shell
 codex-provider-doctor --problem keep-official-login
 ```
+
+这只会选择对应体检项，不会自动确认当前直接 Token 组合是用户有意设计。只有用户明确确认后，再加 `--acknowledge provider.auth.openai_with_direct_token`；确认也不会隐藏明文 Token 警告。
 
 旧的显式确认参数继续兼容：
 

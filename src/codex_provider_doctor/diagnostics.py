@@ -112,30 +112,50 @@ def inspect_catalog(
 
     report["valid"] = True
     report["model_count"] = len(catalog["models"])
-    matches = [
+    requested_model = config.get("model")
+    requested_model = requested_model if isinstance(requested_model, str) else ""
+    candidates = [
         entry
         for entry in catalog["models"]
-        if isinstance(entry, dict) and entry.get("slug") == config.get("model")
+        if isinstance(entry, dict)
+        and isinstance(entry.get("slug"), str)
+        and entry["slug"]
     ]
+    matches = [
+        entry
+        for entry in candidates
+        if requested_model.startswith(entry["slug"])
+    ]
+    if not matches:
+        namespace_parts = requested_model.split("/")
+        if len(namespace_parts) == 2:
+            unprefixed_model = namespace_parts[1]
+            matches = [
+                entry
+                for entry in candidates
+                if unprefixed_model.startswith(entry["slug"])
+            ]
     if not matches:
         findings.append(
             finding(
-                "catalog.model_missing",
-                "error",
-                "模型目录中找不到活动模型",
-                "model 的值没有匹配到 models 数组中的任何 slug。",
-                "确认最终 model 值和模型目录条目的 slug 完全一致，包括大小写、连字符和版本后缀。",
+                "catalog.model_metadata_fallback",
+                "warning",
+                "活动模型没有匹配到目录元数据",
+                "Codex 会按最长 slug 前缀匹配；首次未命中且 model 只有一层简单命名空间时，会去掉斜杠前缀再试一次。当前两步都没有命中，因此会使用回退模型元数据，而不是阻断请求。",
+                "如果需要自定义显示名称或能力字段，增加能被当前 model 前缀命中的目录条目；同时用 App Server model/list 和一次真实请求分别确认显示与路由。",
             )
         )
         return report, catalog_path, selected_model
+    longest_length = max(len(entry["slug"]) for entry in matches)
+    matches = [entry for entry in matches if len(entry["slug"]) == longest_length]
     if len(matches) > 1:
         findings.append(
             finding(
                 "catalog.model_duplicate",
                 "error",
                 "活动模型 slug 在目录中重复",
-                "models 数组中有多个条目匹配当前 model，Codex 将面对有歧义的模型元数据。",
-                "只保留一个与活动 slug 匹配的模型条目。",
+                "models 数组中有多个同长度条目成为最长前缀匹配结果，doctor 无法可靠选择对应元数据。",
+                "只保留一个获胜的最长前缀条目，或让它们使用不同 slug。",
             )
         )
         return report, catalog_path, selected_model
@@ -172,7 +192,7 @@ def provider_report(
                 "warning",
                 "requires_openai_auth 放错了位置",
                 "顶层 requires_openai_auth 不会配置活动 Provider；该字段必须位于 [model_providers.<id>] 内。",
-                "如果目标是让自定义第三方 Provider 保留官方登录态并使用显式 Token，把 requires_openai_auth = true 放到活动 [model_providers.<id>] 块内；不要放在 TOML 顶层，也不要直接叠加到已有 env_key/auth 上。",
+                "如果目标是让活动自定义 Provider 保留官方账户状态，把 requires_openai_auth = true 放到对应 [model_providers.<id>] 块内；第三方请求凭据仍按自身优先级单独判断。",
             )
         )
     provider_id = config.get("model_provider", "openai")
@@ -225,36 +245,25 @@ def provider_report(
     direct_token_configured = "experimental_bearer_token" in provider
     authentication_intent: dict[str, Any] | None = None
 
-    if requires_openai_auth and env_key:
-        findings.append(
-            finding(
-                "provider.auth.openai_with_env_key",
-                "error",
-                "OpenAI 认证会忽略第三方环境变量",
-                "当前 Provider 同时设置 requires_openai_auth = true 和 env_key；Codex 会忽略 env_key。",
-                "如果该接口使用自己的 API Key，请把 requires_openai_auth 设为 false 或删除；只有确实使用 OpenAI 登录的代理才设为 true。",
-            )
-        )
-
-    conflicting_methods = (
-        (requires_openai_auth and env_key is not None)
-        or (env_key is not None and direct_token_configured)
-        or (
-            auth_command_configured
-            and (requires_openai_auth or env_key is not None or direct_token_configured)
-        )
+    conflicting_methods = auth_command_configured and (
+        requires_openai_auth or env_key is not None or direct_token_configured
     )
     if conflicting_methods:
         findings.append(
             finding(
                 "provider.auth.multiple_methods",
                 "error",
-                "Provider 配置了多种互斥认证方式",
-                "检测到明确冲突：requires_openai_auth 会忽略 env_key；env_key 与 experimental_bearer_token 会竞争 Provider Token；命令认证不能再与其他认证字段组合。",
-                "确认接口真正需要的认证路径，移除明确冲突；不要把 requires_openai_auth + experimental_bearer_token 这一版本敏感组合自动当成同一类错误。",
+                "Provider 命令认证与其他认证字段冲突",
+                "[model_providers.<id>].auth 不能与 env_key、experimental_bearer_token 或 requires_openai_auth 同时配置；Codex 会拒绝该 Provider 配置。",
+                "确认第三方接口要使用的请求凭据，只保留命令认证或其他 Provider 认证字段中的一条路径。",
             )
         )
-    if requires_openai_auth and direct_token_configured:
+    if (
+        requires_openai_auth
+        and direct_token_configured
+        and env_key is None
+        and not auth_command_configured
+    ):
         intent_code = "provider.auth.openai_with_direct_token"
         intent_acknowledged = intent_code in acknowledgements
         authentication_intent = {
@@ -280,7 +289,7 @@ def provider_report(
                 (
                     "保持这组双认证配置，并分别验证官方登录、第三方模型请求、Skill 和插件；配置文件明文 Token 风险继续作为独立警告处理。"
                     if intent_acknowledged
-                    else "用户明确要保留官方登录态时，使用 --problem keep-official-login 或 --acknowledge provider.auth.openai_with_direct_token 记录确认；在此之前不要自动删除任一字段。"
+                    else "用户明确确认这组直接 Token 设计后，使用 --acknowledge provider.auth.openai_with_direct_token 记录确认；在此之前不要自动删除任一字段。"
                 ),
                 status="acknowledged" if intent_acknowledged else "unverified",
                 category="intent",
@@ -290,8 +299,6 @@ def provider_report(
     if (
         env_key
         and not env_key_is_set
-        and not requires_openai_auth
-        and not direct_token_configured
         and not auth_command_configured
     ):
         findings.append(
@@ -299,8 +306,8 @@ def provider_report(
                 "provider.auth.env_missing",
                 "warning",
                 "Provider 的 API Key 环境变量没有注入",
-                f"env_key 指向 {env_key}，但当前启动环境中没有检测到非空值；报告不会读取或显示它的内容。",
-                "在真正启动 Codex 的环境中设置该变量，然后完全重启 Codex；不要把 Key 写进截图、Issue 或诊断报告。",
+                f"env_key 指向 {env_key}，但当前启动环境中没有检测到非空值。env_key 优先于直接 Token 和官方认证，缺失时请求会直接失败而不是回退；报告不会读取或显示变量内容。",
+                "在真正启动 Codex 的环境中设置该变量，或在确认替代凭据后移除 env_key，然后完全重启 Codex；不要把 Key 写进截图、Issue 或诊断报告。",
             )
         )
     if direct_token_configured:
@@ -370,11 +377,11 @@ def compatibility_report(
             next_step = "continue_provider_specific_checks"
             exposure_inference = "not_applicable"
         elif observed is False:
-            assessment = "direct_namespace_branch_forced"
-            next_step = "verify_plugin_visibility_and_live_invocation"
-            exposure_inference = "direct_namespace_branch_forced_by_false"
+            assessment = "deferred_search_disabled"
+            next_step = "verify_declared_exposure_and_live_invocation"
+            exposure_inference = "deferred_exposure_removed_by_false"
         elif observed is True:
-            assessment = "exposure_mode_runtime_dependent"
+            assessment = "deferred_exposure_eligible"
             next_step = "verify_namespace_tools_and_live_invocation"
             exposure_inference = "deferred_only_if_namespace_tools_enabled"
         else:
@@ -400,14 +407,14 @@ def compatibility_report(
                 "runtime_verification_required": True,
             }
         )
-        if applicable and observed is True:
+        if applicable and observed is False:
             findings.append(
                 finding(
-                    "compat.chrome.exposure_mode_unverified",
+                    "compat.chrome.supports_search_tool_false",
                     "info",
-                    "supports_search_tool = true 不能单独确定 Chrome 暴露路径",
-                    "用户报告 Chrome 不可用，且活动第三方 Responses 模型设置 supports_search_tool = true。按 2026-08-05 官方 Codex 源码，只有 namespace-tools 功能同时启用时，这个条件才允许 Deferred 暴露；否则仍走 Direct 分支。工具自身声明和实际任务工具表也必须单独核验，因此不能仅凭该字段判定根因。",
-                    "先在本机已安装版本的新任务中核对 namespace-tools 相关能力、tool_search 和 Chrome 工具是否真实出现；只有运行时证据确认 Deferred 发现链路不兼容后，才考虑备份模型目录做受控实验。不要修改顶层 web_search，也不要因 CLI 插件清单失败而重装插件。",
+                    "模型关闭了 Deferred 工具发现",
+                    "用户报告 Chrome 不可用，且活动第三方 Responses 模型设置 supports_search_tool = false。该值会关闭 search_tool_enabled；namespace tools 开启时，Deferred 暴露会被移除，只剩插件声明允许的 Direct 或 Code 路径。如果 Chrome 依赖 Deferred，它可能不出现在新任务中，因此这是首要兼容性疑点，但不是唯一根因。",
+                    "先核对实际模型目录条目、Chrome 的工具暴露证据和新任务工具列表，再做一次最小真实调用。只有证据表明 Chrome 依赖 Deferred 时，才备份模型目录后对 supports_search_tool = true 做受控对照；不要修改顶层 web_search，也不要因 CLI 插件清单失败而重装插件。",
                     status="unverified",
                     category="verification",
                 )
@@ -724,23 +731,38 @@ def plugins_report(
     findings: list[Finding],
 ) -> dict[str, Any]:
     features = config.get("features") if isinstance(config.get("features"), dict) else {}
+    plugins_enabled = features.get("plugins", True) is not False
     apps_enabled = features.get("apps", True) is not False
     remote_plugin_enabled = features.get("remote_plugin", True) is not False
     report: dict[str, Any] = {
         "probe": "skipped",
         "inventory_status": "unverified",
-        "features": {"apps": apps_enabled, "remote_plugin": remote_plugin_enabled},
+        "features": {
+            "plugins": plugins_enabled,
+            "apps": apps_enabled,
+            "remote_plugin": remote_plugin_enabled,
+        },
         "inventory_count": None,
         "chrome": {"found": None, "installed": None, "enabled": None},
     }
+    if not plugins_enabled:
+        findings.append(
+            finding(
+                "plugins.feature.plugins_disabled",
+                "warning",
+                "插件系统被关闭",
+                "features.plugins = false 会阻止插件清单和插件包中的工具或 Skill 加载。",
+                "如果要使用插件，请在用户级配置把 features.plugins 设为 true 或删除显式 false，完全重启 Codex 并新建任务。",
+            )
+        )
     if not apps_enabled:
         findings.append(
             finding(
                 "plugins.feature.apps_disabled",
                 "warning",
                 "App 与连接器能力被关闭",
-                "features.apps = false 会关闭插件依赖的 App/连接器集成。",
-                "如果要使用官方插件，请在用户级配置开启 features.apps，完全重启 Codex 并新建任务。",
+                "features.apps = false 只关闭 App/连接器集成，不等于关闭全部插件、MCP 或独立 Skill。",
+                "只有缺失能力属于 App/连接器时，才在用户级配置开启 features.apps，完全重启 Codex 并新建任务。",
             )
         )
     if not remote_plugin_enabled:

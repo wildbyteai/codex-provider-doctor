@@ -464,7 +464,98 @@ class CatalogResolutionTests(unittest.TestCase):
                 },
             )
 
-    def test_catalog_without_active_model_is_an_error(self) -> None:
+    def test_catalog_uses_the_longest_slug_prefix(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            codex_home = root / "codex-home"
+            codex_home.mkdir()
+            (codex_home / "catalog.json").write_text(
+                json.dumps(
+                    {
+                        "models": [
+                            {"slug": "vendor", "display_name": "Vendor"},
+                            {
+                                "slug": "vendor-model",
+                                "display_name": "Vendor Model",
+                            },
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (codex_home / "config.toml").write_text(
+                "\n".join(
+                    [
+                        'model = "vendor-model-preview"',
+                        'model_provider = "custom"',
+                        'model_catalog_json = "catalog.json"',
+                        "",
+                        "[model_providers.custom]",
+                        'base_url = "https://api.example.invalid/v1"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            result = run_doctor(
+                "--codex-home",
+                str(codex_home),
+                "--system-config",
+                str(root / "missing-system.toml"),
+                "--no-command-checks",
+                "--json",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            report = json.loads(result.stdout)
+            self.assertEqual(report["catalog"]["selected_model"]["slug"], "vendor-model")
+
+    def test_catalog_retries_after_a_single_simple_model_namespace(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            codex_home = root / "codex-home"
+            codex_home.mkdir()
+            (codex_home / "catalog.json").write_text(
+                json.dumps(
+                    {
+                        "models": [
+                            {
+                                "slug": "vendor-model",
+                                "display_name": "Vendor Model",
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (codex_home / "config.toml").write_text(
+                "\n".join(
+                    [
+                        'model = "vendor/vendor-model-preview"',
+                        'model_provider = "custom"',
+                        'model_catalog_json = "catalog.json"',
+                        "",
+                        "[model_providers.custom]",
+                        'base_url = "https://api.example.invalid/v1"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            result = run_doctor(
+                "--codex-home",
+                str(codex_home),
+                "--system-config",
+                str(root / "missing-system.toml"),
+                "--no-command-checks",
+                "--json",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            report = json.loads(result.stdout)
+            self.assertEqual(report["catalog"]["selected_model"]["slug"], "vendor-model")
+
+    def test_catalog_without_active_model_uses_fallback_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             codex_home = root / "codex-home"
@@ -496,11 +587,11 @@ class CatalogResolutionTests(unittest.TestCase):
                 "--json",
             )
 
-            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertEqual(result.returncode, 1, result.stderr)
             report = json.loads(result.stdout)
             self.assertEqual(
                 [finding["code"] for finding in report["findings"]],
-                ["catalog.model_missing"],
+                ["catalog.model_metadata_fallback"],
             )
 
     def test_catalog_models_value_must_be_an_array(self) -> None:

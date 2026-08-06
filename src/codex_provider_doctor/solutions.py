@@ -17,9 +17,26 @@ def _disabled_plugin_features(report: dict[str, Any]) -> list[str]:
     features = plugins.get("features") if isinstance(plugins.get("features"), dict) else {}
     return [
         feature
-        for feature in ("apps", "remote_plugin")
+        for feature in ("plugins", "apps", "remote_plugin")
         if features.get(feature) is False
     ]
+
+
+def _provider_request_authentication(provider: dict[str, Any]) -> tuple[str, str]:
+    if provider.get("env_key") is not None:
+        return (
+            "env_key",
+            "ready"
+            if provider.get("env_key_is_set") is True
+            else "missing_no_fallback",
+        )
+    if provider.get("direct_bearer_token_configured") is True:
+        return "experimental_bearer_token", "configured"
+    if provider.get("auth_command_configured") is True:
+        return "auth", "runtime_unverified"
+    if provider.get("requires_openai_auth") is True:
+        return "official_auth", "runtime_unverified"
+    return "none", "not_configured"
 
 
 def _keep_official_login_solution(
@@ -30,9 +47,11 @@ def _keep_official_login_solution(
     auth = report["auth"]
     provider_id = str(provider.get("id") or "<active-id>")
     config_path = f"model_providers.{provider_id}.requires_openai_auth"
+    request_source, request_status = _provider_request_authentication(provider)
+    request_authentication = {"source": request_source, "status": request_status}
     dual_auth_configured = (
         provider.get("requires_openai_auth") is True
-        and provider.get("direct_bearer_token_configured") is True
+        and request_source == "experimental_bearer_token"
     )
     authentication_intent = provider.get("authentication_intent")
     intent_acknowledged = (
@@ -88,14 +107,9 @@ def _keep_official_login_solution(
             ],
         }
 
-    conflicting_auth_fields = [
-        field
-        for field, configured in (
-            ("env_key", provider.get("env_key") is not None),
-            ("auth", provider.get("auth_command_configured") is True),
-        )
-        if configured
-    ]
+    conflicting_auth_fields = (
+        ["auth"] if provider.get("auth_command_configured") is True else []
+    )
     if conflicting_auth_fields:
         if language == "en":
             fields = ", ".join(conflicting_auth_fields)
@@ -103,14 +117,14 @@ def _keep_official_login_solution(
                 "id": "keep-official-login",
                 "title": "Keep the official sign-in",
                 "status": "needs_auth_method_transition",
-                "diagnosis": f"The active provider already uses {fields}; adding the dual-authentication fields on top would create competing provider authentication methods.",
+                "diagnosis": f"The active provider uses {fields}; command authentication cannot coexist with requires_openai_auth, env_key, or experimental_bearer_token.",
                 "config_path": config_path,
                 "required_value": True,
                 "official_login": official_login,
                 "conflicting_auth_fields": conflicting_auth_fields,
                 "actions": [
-                    "Do not stack requires_openai_auth or experimental_bearer_token on the existing env_key/auth method.",
-                    f"Back up the config and show the field diff first. If direct-token authentication is confirmed, remove env_key/auth in the same controlled edit, then set requires_openai_auth = true and experimental_bearer_token under [model_providers.{provider_id}].",
+                    "Keep command authentication or the other Provider authentication fields, not both.",
+                    f"Back up the config and show the field diff first. If the direct-token design is confirmed, remove auth before setting requires_openai_auth = true and experimental_bearer_token under [model_providers.{provider_id}].",
                     "Restart Codex and test official sign-in, third-party model requests, and plugins separately; keep plaintext-token risk independent.",
                 ],
             }
@@ -118,15 +132,84 @@ def _keep_official_login_solution(
             "id": "keep-official-login",
             "title": "保留官方登录态",
             "status": "needs_auth_method_transition",
-            "diagnosis": f"当前 Provider 已使用 {', '.join(conflicting_auth_fields)}；直接叠加双认证字段会形成相互竞争的 Provider 认证方式。",
+            "diagnosis": "当前 Provider 使用命令认证 auth；它不能与 requires_openai_auth、env_key 或 experimental_bearer_token 同时配置。",
             "config_path": config_path,
             "required_value": True,
             "official_login": official_login,
             "conflicting_auth_fields": conflicting_auth_fields,
             "actions": [
-                "不要把 requires_openai_auth 或 experimental_bearer_token 直接叠加到现有 env_key/auth 上。",
-                f"先备份配置并展示字段 diff；如果确认改用直接 Token，在同一次受控修改中移除 env_key/auth，再在 [model_providers.{provider_id}] 下设置 requires_openai_auth = true 和 experimental_bearer_token。",
+                "命令认证 auth 与其他 Provider 认证字段只能保留一条路径。",
+                f"先备份配置并展示字段 diff；如果确认改用直接 Token，先移除 auth，再在 [model_providers.{provider_id}] 下设置 requires_openai_auth = true 和 experimental_bearer_token。",
                 "修改后完全重启 Codex，分别验证官方登录、第三方模型请求和插件；Token 明文风险继续独立处理。",
+            ],
+        }
+
+    if provider.get("requires_openai_auth") is True and request_source == "env_key":
+        ready = request_status == "ready"
+        security_warning = provider.get("direct_bearer_token_configured") is True
+        if language == "en":
+            return {
+                "id": "keep-official-login",
+                "title": "Keep the official sign-in",
+                "status": (
+                    "configured_with_security_warning"
+                    if ready and security_warning
+                    else "configured"
+                    if ready
+                    else "needs_configuration"
+                ),
+                "diagnosis": (
+                    "requires_openai_auth keeps the official account state available, and env_key is the selected third-party request credential. A configured direct token is lower priority and remains only a plaintext-storage risk."
+                    if ready and security_warning
+                    else "requires_openai_auth keeps the official account state available, and env_key is the selected third-party request credential."
+                    if ready
+                    else "requires_openai_auth keeps the official account state available, but env_key is missing from the launch environment. Requests fail without falling back to the direct token or official authentication."
+                ),
+                "config_path": config_path,
+                "required_value": True,
+                "official_login": official_login,
+                "request_authentication": request_authentication,
+                "actions": [
+                    f"Keep requires_openai_auth = true under [model_providers.{provider_id}].",
+                    (
+                        "Keep env_key for third-party requests."
+                        if ready
+                        else "Inject the configured env_key into the environment that launches Codex, or remove env_key only after confirming the replacement credential."
+                    ),
+                    "Verify official sign-in, one third-party request, and one official-plugin action separately.",
+                    "If a direct token is also stored in config.toml, treat it as a separate plaintext risk; it is not the selected request credential while env_key is configured.",
+                ],
+            }
+        return {
+            "id": "keep-official-login",
+            "title": "保留官方登录态",
+            "status": (
+                "configured_with_security_warning"
+                if ready and security_warning
+                else "configured"
+                if ready
+                else "needs_configuration"
+            ),
+            "diagnosis": (
+                "requires_openai_auth 已保留官方账户状态，第三方请求实际使用 env_key；同时存在的直接 Token 优先级更低，只保留明文存储风险。"
+                if ready and security_warning
+                else "requires_openai_auth 已保留官方账户状态，第三方请求实际使用 env_key。"
+                if ready
+                else "requires_openai_auth 已保留官方账户状态，但启动 Codex 的环境没有注入 env_key；请求会直接失败，不会回退到直接 Token 或官方认证。"
+            ),
+            "config_path": config_path,
+            "required_value": True,
+            "official_login": official_login,
+            "request_authentication": request_authentication,
+            "actions": [
+                f"保持 [model_providers.{provider_id}] 下的 requires_openai_auth = true。",
+                (
+                    "保留 env_key 作为第三方请求凭据。"
+                    if ready
+                    else "把该环境变量注入真正启动 Codex 的环境；只有确认替代凭据后才删除 env_key。"
+                ),
+                "分别验证官方登录、一次第三方模型请求和一次官方插件调用。",
+                "如果 config.toml 还保存了直接 Token，继续单独处理明文风险；只要 env_key 存在，它就不是当前选中的请求凭据。",
             ],
         }
 
@@ -152,11 +235,12 @@ def _keep_official_login_solution(
                 "config_path": config_path,
                 "required_value": True,
                 "official_login": official_login,
+                "request_authentication": request_authentication,
                 "actions": [
                     (
                         f"Keep requires_openai_auth = true under [model_providers.{provider_id}]."
                         if intent_acknowledged
-                        else "Only after the user explicitly confirms this design, record it with --problem keep-official-login or --acknowledge provider.auth.openai_with_direct_token."
+                        else "Only after the user explicitly confirms this design, record it with --acknowledge provider.auth.openai_with_direct_token."
                     ),
                     (
                         "Keep experimental_bearer_token in the same provider block; it authenticates third-party requests and its value is never reported."
@@ -167,6 +251,22 @@ def _keep_official_login_solution(
                     "Plaintext token storage remains a separate security risk; do not break the working combination before migrating credentials.",
                 ],
             }
+        if provider.get("requires_openai_auth") is True:
+            return {
+                "id": "keep-official-login",
+                "title": "Keep the official sign-in",
+                "status": "runtime_verification_required",
+                "diagnosis": "requires_openai_auth keeps the official account state available. No Provider-specific credential takes priority, so the third-party endpoint will receive official authentication and must accept it.",
+                "config_path": config_path,
+                "required_value": True,
+                "official_login": official_login,
+                "request_authentication": request_authentication,
+                "actions": [
+                    f"Keep requires_openai_auth = true under [model_providers.{provider_id}] only if the endpoint accepts official authentication.",
+                    "If the endpoint requires its own credential, add env_key or a direct token without removing requires_openai_auth.",
+                    "Verify official sign-in and one third-party request separately.",
+                ],
+            }
         return {
             "id": "keep-official-login",
             "title": "Keep the official sign-in",
@@ -175,9 +275,10 @@ def _keep_official_login_solution(
             "config_path": config_path,
             "required_value": True,
             "official_login": official_login,
+            "request_authentication": request_authentication,
             "actions": [
                 f"Place requires_openai_auth = true under [model_providers.{provider_id}], not at the TOML top level.",
-                "Place experimental_bearer_token in the same provider block for third-party requests; never paste its value into a report.",
+                "Keep the working third-party request credential; requires_openai_auth can coexist with env_key or a direct token.",
                 "Separately confirm that codex login status reports ChatGPT sign-in and keep that official session signed in.",
                 "Do not expose the token in screenshots, reports, or issue descriptions.",
             ],
@@ -204,11 +305,12 @@ def _keep_official_login_solution(
             "config_path": config_path,
             "required_value": True,
             "official_login": official_login,
+            "request_authentication": request_authentication,
             "actions": [
                 (
                     f"保持 [model_providers.{provider_id}] 下的 requires_openai_auth = true。"
                     if intent_acknowledged
-                    else "只有用户明确确认该设计后，才用 --problem keep-official-login 或 --acknowledge provider.auth.openai_with_direct_token 记录意图。"
+                    else "只有用户明确确认该设计后，才用 --acknowledge provider.auth.openai_with_direct_token 记录意图。"
                 ),
                 (
                     "在同一 Provider 块保留 experimental_bearer_token；它用于第三方请求，值不会进入报告。"
@@ -219,17 +321,34 @@ def _keep_official_login_solution(
                 "Token 明文存储仍是独立安全风险；迁移凭据前不要破坏当前可用组合。",
             ],
         }
+    if provider.get("requires_openai_auth") is True:
+        return {
+            "id": "keep-official-login",
+            "title": "保留官方登录态",
+            "status": "runtime_verification_required",
+            "diagnosis": "requires_openai_auth 已保留官方账户状态；当前没有更高优先级的 Provider 凭据，因此第三方端点也会收到官方认证，需确认端点是否接受。",
+            "config_path": config_path,
+            "required_value": True,
+            "official_login": official_login,
+            "request_authentication": request_authentication,
+            "actions": [
+                f"只有第三方端点接受官方认证时，才保持 [model_providers.{provider_id}] 下的 requires_openai_auth = true。",
+                "如果端点要求自己的凭据，可以在不删除 requires_openai_auth 的前提下增加 env_key 或直接 Token。",
+                "分别验证官方登录和一次第三方模型请求。",
+            ],
+        }
     return {
         "id": "keep-official-login",
         "title": "保留官方登录态",
         "status": "needs_configuration",
-        "diagnosis": "当前活动 Provider 尚未形成已确认的双认证配置。",
+        "diagnosis": f"当前 [model_providers.{provider_id}].requires_openai_auth 不是 true；第三方请求凭据为 {request_source}。",
         "config_path": config_path,
         "required_value": True,
         "official_login": official_login,
+        "request_authentication": request_authentication,
         "actions": [
             f"把 requires_openai_auth = true 放在 [model_providers.{provider_id}] 下，不能放在 TOML 顶层。",
-            "把 experimental_bearer_token 放在同一个 Provider 块用于第三方请求；报告不会读取其值。",
+            "保留当前可用的第三方请求凭据；requires_openai_auth 可以与 env_key 或直接 Token 同时使用。",
             "单独确认 codex login status 显示 ChatGPT 登录，并保持该官方会话不要退出。",
             "不要在截图、报告或 Issue 中暴露 Token。",
         ],
@@ -285,27 +404,27 @@ def _model_name_solution(
             return {
                 "id": "model-name-incorrect",
                 "title": "Fix the model name",
-                "status": "needs_catalog_match",
-                "diagnosis": "The effective model does not uniquely match an entry in the active model catalog.",
+                "status": "runtime_verification_required",
+                "diagnosis": "No catalog slug matched the effective model by Codex's longest-prefix rule, including the retry after removing the active Provider namespace. Codex uses fallback metadata instead of blocking the request.",
                 "catalog_path": catalog_path,
                 "model_slug": model_slug,
                 "actions": [
                     "Confirm that the effective model_catalog_json points to the intended catalog.",
-                    "Make the top-level model value match exactly one models[].slug entry.",
-                    "Restart Codex completely and open a new task after the catalog is corrected.",
+                    "If a custom display name or capability metadata is required, add a slug that is a prefix of the effective model.",
+                    "Compare App Server model/list and one real request before changing the catalog only because Desktop shows Custom.",
                 ],
             }
         return {
             "id": "model-name-incorrect",
             "title": "修正模型名称",
-            "status": "needs_catalog_match",
-            "diagnosis": "当前生效的 model 没有在实际模型目录中唯一匹配到条目。",
+            "status": "runtime_verification_required",
+            "diagnosis": "当前 model 没有按 Codex 的最长 slug 前缀规则命中目录；去掉当前 Provider 命名空间后重试也未命中。Codex 会使用回退元数据，不会因此阻断请求。",
             "catalog_path": catalog_path,
             "model_slug": model_slug,
             "actions": [
                 "确认实际生效的 model_catalog_json 指向目标模型目录。",
-                "让顶层 model 与唯一一条 models[].slug 完全一致。",
-                "修正目录后完全重启 Codex 并新建任务。",
+                "如果需要自定义显示名称或能力字段，增加一条能作为当前 model 前缀的 slug。",
+                "不要只因为 Desktop 显示 Custom 就盲改目录；先核对 App Server model/list 和一次真实请求。",
             ],
         }
 
@@ -329,7 +448,7 @@ def _model_name_solution(
             ]
             if display_name_is_clear
             else [
-                f'Keep the top-level model = "{model_slug}" exactly aligned with models[].slug.',
+                f'Keep the top-level model = "{model_slug}" matched by the intended longest slug prefix.',
                 "Set a non-empty display_name on the effective catalog entry.",
                 "Restart Codex completely and open a new task; older tasks may keep the previous name.",
             ]
@@ -370,7 +489,7 @@ def _model_name_solution(
         ]
         if display_name_is_clear
         else [
-            f'保持顶层 model = "{model_slug}" 与 models[].slug 完全一致。',
+            f'保持顶层 model = "{model_slug}" 能按最长 slug 前缀命中预期条目。',
             "在实际生效的模型目录条目中填写非空 display_name。",
             "完全重启 Codex 并新建任务，旧任务可能继续显示旧名称。",
         ]
@@ -571,35 +690,29 @@ def _plugins_and_skills_solution(
     skills_coverage = skills.get("coverage", "complete")
     plugin_verified = plugins.get("inventory_status") == "verified"
     disabled_features = _disabled_plugin_features(report)
-    if disabled_features:
+    if "plugins" in disabled_features:
         if language == "en":
-            settings = ", ".join(
-                f"features.{feature} = false" for feature in disabled_features
-            )
             return {
                 "id": "plugins-or-skills-unavailable",
                 "title": "Restore plugins and skills",
                 "status": "plugin_features_disabled",
-                "diagnosis": f"Plugin integration features are disabled: {settings}. Switching providers did not remove Skill installations, but official plugins and connectors may not load.",
+                "diagnosis": "features.plugins = false disables the plugin system. Local standalone Skill files may still exist, but plugin-packaged tools and Skills cannot load into a new task.",
                 "disabled_features": disabled_features,
                 "actions": [
-                    "Restore the required feature in user-level configuration, restart Codex completely, and open a new task.",
-                    "Then confirm that official plugins are enabled in Plugins/Settings and complete connector or MCP authorization.",
+                    "Set [features].plugins = true in user-level configuration, or remove the explicit false, then restart Codex completely and open a new task.",
+                    "Confirm the target plugin is enabled in Plugins/Settings and complete connector or MCP authorization.",
                     "Do not reinstall because the CLI inventory failed; first verify whether the new task exposes the expected tool.",
                 ],
             }
-        settings = "、".join(
-            f"features.{feature} = false" for feature in disabled_features
-        )
         return {
             "id": "plugins-or-skills-unavailable",
             "title": "恢复插件与 Skill",
             "status": "plugin_features_disabled",
-            "diagnosis": f"插件集成功能被配置关闭：{settings}。切换 Provider 没有删除 Skill 安装，但官方插件和连接器可能无法加载。",
+            "diagnosis": "features.plugins = false 已关闭插件系统。本地独立 Skill 文件可能仍在，但插件包中的工具和 Skill 无法加载进新任务。",
             "disabled_features": disabled_features,
             "actions": [
-                "在用户级配置恢复所需 feature，完全重启 Codex 并新建任务。",
-                "再在 Plugins/Settings 确认官方插件启用，并完成连接器或 MCP 授权。",
+                "在用户级配置把 [features].plugins 设为 true，或删除显式 false；完全重启 Codex 并新建任务。",
+                "再在 Plugins/Settings 确认目标插件已启用，并完成连接器或 MCP 授权。",
                 "不要因为 CLI 清单失败而重装插件；先验证新任务是否实际出现目标工具。",
             ],
         }
@@ -702,103 +815,72 @@ def _chrome_solution(
     }
     disabled_features = _disabled_plugin_features(report)
 
-    if "apps" in disabled_features:
-        support_value = (
-            "true"
-            if supports_search_tool is True
-            else "false"
-            if supports_search_tool is False
-            else "unset"
-        )
+    if "plugins" in disabled_features:
         if language == "en":
             return {
                 "id": "chrome-unavailable",
                 "title": "Restore Chrome calls",
                 "status": "plugin_features_disabled",
-                "diagnosis": f"features.apps = false disables App/connector integration, which is more direct static evidence for missing Chrome capability. supports_search_tool = {support_value} remains separate and does not determine the live tool list by itself.",
+                "diagnosis": "features.plugins = false disables the plugin system, so the Chrome plugin cannot load into a new task. This is stronger static evidence than model-catalog compatibility fields.",
                 "observed": observed,
                 "evidence_scope": evidence_scope,
                 "disabled_features": disabled_features,
                 "actions": [
-                    "Restore features.apps in user-level configuration, restart Codex completely, and open a new task.",
+                    "Set [features].plugins = true in user-level configuration, or remove the explicit false, then restart Codex completely and open a new task.",
                     "Confirm Chrome in Plugins/Settings and complete connector authorization before reinstalling anything.",
-                    "If features.remote_plugin is also false, review it separately only when Chrome depends on the remote Plugins Directory. Then verify namespace tools and a live invocation; do not change top-level web_search.",
+                    "Then verify the new-task tool list and one live invocation; do not change top-level web_search.",
                 ],
             }
-        if support_value == "unset":
-            support_value = "未设置"
         return {
             "id": "chrome-unavailable",
             "title": "恢复 Chrome 调用",
             "status": "plugin_features_disabled",
-            "diagnosis": f"features.apps = false 已关闭 App/连接器集成，这是 Chrome 能力缺失的更直接静态证据；supports_search_tool = {support_value} 仍是独立字段，不能单独确定真实工具列表。",
+            "diagnosis": "features.plugins = false 已关闭插件系统，因此 Chrome 插件无法加载进新任务。这比模型目录兼容字段更直接。",
             "observed": observed,
             "evidence_scope": evidence_scope,
             "disabled_features": disabled_features,
             "actions": [
-                "先在用户级配置恢复 features.apps，完全重启 Codex 并新建任务。",
+                "在用户级配置把 [features].plugins 设为 true，或删除显式 false；完全重启 Codex 并新建任务。",
                 "在 Plugins/Settings 确认 Chrome 已启用并完成连接器授权，不要先重装。",
-                "如果 features.remote_plugin 也为 false，只有确认 Chrome 依赖远程插件目录时再单独处理；随后核对 namespace tools 和真实调用，不要修改顶层 web_search。",
+                "再核对新任务工具列表和一次真实调用；不要修改顶层 web_search。",
             ],
         }
 
+    scoped_note_en = ""
+    scoped_note_zh = ""
+    if "apps" in disabled_features:
+        scoped_note_en += " features.apps = false only affects the App/connector path."
+        scoped_note_zh += " features.apps = false 只影响 App/连接器路径。"
     if "remote_plugin" in disabled_features:
-        if language == "en":
-            return {
-                "id": "chrome-unavailable",
-                "title": "Restore Chrome calls",
-                "status": "remote_plugin_directory_disabled_runtime_unverified",
-                "diagnosis": "features.remote_plugin = false may prevent the remote Plugins Directory from loading, but it does not prove that an already installed Chrome tool is unavailable. Model-catalog and live-tool evidence remain separate.",
-                "observed": observed,
-                "evidence_scope": evidence_scope,
-                "disabled_features": disabled_features,
-                "actions": [
-                    "First confirm in Plugins/Settings whether this Chrome capability comes from the remote Plugins Directory and whether it is already installed.",
-                    "Only when that dependency is confirmed, enable features.remote_plugin in user-level configuration, restart Codex, and open a new task.",
-                    "Then verify namespace tools, the live Chrome tool, and an actual invocation; do not infer a top-level web_search change or reinstall from CLI evidence alone.",
-                ],
-            }
-        return {
-            "id": "chrome-unavailable",
-            "title": "恢复 Chrome 调用",
-            "status": "remote_plugin_directory_disabled_runtime_unverified",
-            "diagnosis": "features.remote_plugin = false 可能使远程 Plugins Directory 无法加载，但不能证明已经安装的 Chrome 工具因此不可用；模型目录和真实工具列表仍需分开核验。",
-            "observed": observed,
-            "evidence_scope": evidence_scope,
-            "disabled_features": disabled_features,
-            "actions": [
-                "先在 Plugins/Settings 确认当前 Chrome 能力是否来自远程插件目录，以及是否已经安装。",
-                "只有确认存在该依赖时，才在用户级配置开启 features.remote_plugin，完全重启 Codex 并新建任务。",
-                "随后核对 namespace tools、Chrome 实际工具和真实调用；不要推断顶层 web_search，也不要只凭 CLI 证据重装插件。",
-            ],
-        }
+        scoped_note_en += " features.remote_plugin = false only affects the remote Plugins Directory."
+        scoped_note_zh += " features.remote_plugin = false 只影响远程插件目录。"
 
     if supports_search_tool is False:
         if language == "en":
             return {
                 "id": "chrome-unavailable",
                 "title": "Restore Chrome calls",
-                "status": "direct_namespace_branch_runtime_unverified",
-                "diagnosis": "Under the official Codex source as of 2026-08-05, supports_search_tool = false forces the namespace-tool planning branch to Direct. This does not prove that Chrome declares Direct exposure or appears in the live task tool list, so the field is not fault evidence by itself.",
+                "status": "deferred_search_disabled_suspect",
+                "diagnosis": "supports_search_tool = false disables search_tool_enabled. With namespace tools enabled, Deferred exposure is removed and only the plugin's declared Direct or Code paths remain. If Chrome depends on Deferred, it may disappear from a new task, so this is the leading compatibility suspect but not a unique root cause." + scoped_note_en,
                 "observed": observed,
                 "evidence_scope": evidence_scope,
                 "actions": [
-                    "Restart Codex completely and open a new task, then confirm whether the Chrome tool is actually present.",
-                    "If the tool is absent, check Plugins/Settings, official sign-in, the Chrome profile, and connector authorization; do not reinstall because a CLI inventory probe failed.",
-                    "If the tool is present but invocation fails, inspect the Chrome extension bridge, site blocking rules, and the live invocation error.",
+                    "Confirm the effective catalog entry, Chrome exposure evidence, and the new-task tool list, then run one minimal live invocation.",
+                    "Only when the evidence shows that Chrome depends on Deferred should you back up the catalog and compare supports_search_tool = true in a controlled test.",
+                    "Do not change top-level web_search or reinstall the plugin because a CLI inventory probe failed.",
                 ],
             }
         return {
             "id": "chrome-unavailable",
             "title": "恢复 Chrome 调用",
-            "status": "direct_namespace_branch_runtime_unverified",
-            "diagnosis": "按 2026-08-05 官方 Codex 源码，活动模型 supports_search_tool = false 会让 namespace 工具规划分支进入 Direct；这不能证明 Chrome 自身声明为 Direct 或已进入真实任务工具列表，因此该值本身不是故障证据。",
+            "status": "deferred_search_disabled_suspect",
+            "diagnosis": "supports_search_tool = false 会关闭 search_tool_enabled；namespace tools 开启时，Deferred 暴露会被移除，只剩插件声明允许的 Direct 或 Code 路径。如果 Chrome 依赖 Deferred，它可能不会进入新任务，因此这是首要兼容性疑点，但不是唯一根因。" + scoped_note_zh,
             "observed": observed,
             "evidence_scope": evidence_scope,
             "actions": [
-                "完全重启 Codex 并新建任务，确认新任务是否实际出现 Chrome 工具。",
-                "工具未出现时，检查 Plugins/Settings、官方登录、Chrome Profile 和连接器授权，不要因为 CLI 清单失败而重装。",
-                "工具已经出现但调用失败时，再检查 Chrome 扩展桥接、站点阻止规则和真实调用错误。",
+                "先核对实际生效的模型目录条目、Chrome 暴露证据和新任务工具列表，再做一次最小真实调用。",
+                "只有证据表明 Chrome 依赖 Deferred 时，才备份模型目录并用 supports_search_tool = true 做受控对照。",
+                "不要修改顶层 web_search，也不要因为 CLI 插件清单失败而重装插件。",
             ],
         }
 
@@ -807,26 +889,26 @@ def _chrome_solution(
             return {
                 "id": "chrome-unavailable",
                 "title": "Restore Chrome calls",
-                "status": "exposure_mode_runtime_unverified",
-                "diagnosis": "Under the official Codex source as of 2026-08-05, supports_search_tool = true permits Deferred exposure only when namespace tools are also enabled; otherwise the Direct branch remains possible. The field alone cannot determine Chrome exposure or the root cause.",
+                "status": "runtime_verification_required",
+                "diagnosis": "supports_search_tool = true allows Deferred exposure when namespace tools are enabled; it does not prove that Chrome is declared, loaded, authorized, or callable." + scoped_note_en,
                 "observed": observed,
                 "evidence_scope": evidence_scope,
                 "actions": [
-                    "In a new task, confirm whether tool_search and the Chrome tool are present before treating the plugin as damaged.",
-                    "If runtime evidence confirms Deferred discovery and the third-party provider cannot support it, back up the catalog before any controlled experiment, then retest Chrome, skills, and other plugins separately.",
-                    "Do not change top-level web_search, and do not reinstall a plugin only because the CLI inventory probe failed.",
+                    "Open a new task and confirm whether tool_search and the Chrome tool are present.",
+                    "If Chrome is absent, continue with features.plugins, Plugins/Settings, authorization, and Chrome Profile checks before changing model metadata.",
+                    "Do not change top-level web_search or reinstall the plugin because a CLI inventory probe failed.",
                 ],
             }
         return {
             "id": "chrome-unavailable",
             "title": "恢复 Chrome 调用",
-            "status": "exposure_mode_runtime_unverified",
-            "diagnosis": "按 2026-08-05 官方 Codex 源码，supports_search_tool = true 只有在 namespace tools 同时启用时才允许 Deferred；否则仍可能走 Direct。单靠这个字段不能确定 Chrome 暴露路径或故障根因。",
+            "status": "runtime_verification_required",
+            "diagnosis": "supports_search_tool = true 会在 namespace tools 开启时允许 Deferred 暴露，但不能证明 Chrome 已声明、已加载、已授权或能够真实调用。" + scoped_note_zh,
             "observed": observed,
             "evidence_scope": evidence_scope,
             "actions": [
-                "先在新任务确认是否出现 tool_search 和 Chrome 工具，再判断插件是否损坏。",
-                "只有运行时证据确认实际采用 Deferred 且第三方 Provider 不支持该发现链路后，才在备份模型目录的前提下做受控实验，并逐项回归 Chrome、Skill 和其他插件。",
+                "新建任务，确认 tool_search 和 Chrome 工具是否实际出现。",
+                "Chrome 未出现时，先继续检查 features.plugins、Plugins/Settings、授权和 Chrome Profile，再考虑修改模型元数据。",
                 "不要修改顶层 web_search，也不要仅因 CLI 插件清单失败而重装插件。",
             ],
         }

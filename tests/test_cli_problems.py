@@ -281,10 +281,15 @@ class UserProblemGuideTests(unittest.TestCase):
                 login[("$CODEX_HOME/auth.json", "官方登录缓存")],
                 "文件存在；内容未读取",
             )
+            self.assertEqual(
+                login[("$CODEX_HOME/config.toml", "第三方请求实际使用")],
+                "experimental_bearer_token（值未读取）",
+            )
 
             plugins = target_map("plugins-or-skills-unavailable")
             self.assertEqual(plugins[("$CODEX_HOME/skills", "已安装 Skill")], "1 个")
             self.assertEqual(plugins[("$PROJECT_ROOT/.agents/skills", "项目 Skill")], "1 个；项目已受信任")
+            self.assertEqual(plugins[("$CODEX_HOME/config.toml", "features.plugins")], "true（默认值；未显式设置）")
             self.assertEqual(plugins[("$CODEX_HOME/config.toml", "features.apps")], "true")
             self.assertEqual(plugins[("$CODEX_HOME/config.toml", "features.remote_plugin")], "false")
             self.assertEqual(
@@ -298,7 +303,7 @@ class UserProblemGuideTests(unittest.TestCase):
 
             model = target_map("model-name-incorrect")
             self.assertEqual(model[("$CODEX_HOME/config.toml", "model")], "vendor-model-v1")
-            self.assertEqual(model[("$CODEX_HOME/catalog.json", "models[].slug")], "vendor-model-v1（唯一匹配）")
+            self.assertEqual(model[("$CODEX_HOME/catalog.json", "models[].slug")], "vendor-model-v1（最长前缀命中）")
             self.assertEqual(model[("$CODEX_HOME/catalog.json", "models[].display_name")], "Vendor Model V1")
 
             history = target_map("history-missing")
@@ -314,8 +319,9 @@ class UserProblemGuideTests(unittest.TestCase):
             self.assertEqual(history[("$CODEX_HOME/history.sqlite", "数据库访问方式")], "只读；未读取任务正文")
 
             chrome = target_map("chrome-unavailable")
-            self.assertEqual(chrome[("$CODEX_HOME/catalog.json", "models[].supports_search_tool")], "false（兼容性线索，不是唯一根因）")
+            self.assertEqual(chrome[("$CODEX_HOME/catalog.json", "models[].supports_search_tool")], "false（Deferred 被移除；首要兼容性疑点，非唯一根因）")
             self.assertEqual(chrome[("$CODEX_HOME/catalog.json", "models[].tool_mode")], "direct")
+            self.assertEqual(chrome[("$CODEX_HOME/config.toml", "features.plugins")], "true（默认值；未显式设置）")
             self.assertEqual(chrome[("$CODEX_HOME/config.toml", "features.apps")], "true")
             self.assertEqual(chrome[("$CODEX_HOME/config.toml", "features.remote_plugin")], "false")
 
@@ -385,10 +391,17 @@ class UserProblemGuideTests(unittest.TestCase):
                         for target in card["exact_targets"]
                         if target["parameter"] == "models[].supports_search_tool"
                     )
-                    self.assertEqual(
-                        support_target["current_value"],
-                        f"{value}（兼容性线索，不是唯一根因）",
+                    expected = (
+                        "true（namespace tools 开启时可进入 Deferred；仍需运行时验证）"
+                        if supports_search_tool
+                        else "false（Deferred 被移除；首要兼容性疑点，非唯一根因）"
                     )
+                    self.assertEqual(support_target["current_value"], expected)
+                    self.assertIn("Deferred", card["current_result"])
+                    if supports_search_tool:
+                        self.assertNotIn("首要兼容性疑点", card["current_result"])
+                    else:
+                        self.assertIn("首要兼容性疑点", card["current_result"])
                     self.assertNotIn("唯一根因是", card["current_result"])
 
     def test_provider_fields_keep_their_individual_effective_config_origins(self) -> None:
@@ -541,7 +554,7 @@ class UserProblemGuideTests(unittest.TestCase):
                 },
             )
 
-    def test_keep_official_login_problem_recognizes_confirmed_dual_auth_configuration(self) -> None:
+    def test_keep_official_login_problem_does_not_acknowledge_intent_by_itself(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             codex_home = root / "codex-home"
@@ -578,43 +591,14 @@ class UserProblemGuideTests(unittest.TestCase):
             self.assertNotIn(secret, result.stdout)
             report = json.loads(result.stdout)
             self.assertEqual(report["solutions"]["requested"], ["keep-official-login"])
+            solution = report["solutions"]["items"][0]
+            self.assertEqual(solution["status"], "configured_intent_unverified_with_security_warning")
             self.assertEqual(
-                report["solutions"]["items"][0],
-                {
-                    "id": "keep-official-login",
-                    "title": "保留官方登录态",
-                    "status": "configured_login_unverified_with_security_warning",
-                    "diagnosis": "双认证配置已就位：requires_openai_auth 保留官方账户状态，显式 Bearer Token 用于第三方请求；本次未运行官方登录状态探针。",
-                    "config_path": "model_providers.custom.requires_openai_auth",
-                    "required_value": True,
-                    "official_login": {
-                        "probe": "skipped",
-                        "method": None,
-                        "status": "unverified",
-                    },
-                    "actions": [
-                        "保持 [model_providers.custom] 下的 requires_openai_auth = true。",
-                        "在同一 Provider 块保留 experimental_bearer_token；它用于第三方请求，值不会进入报告。",
-                        "单独确认 codex login status 显示 ChatGPT 登录；不要退出或覆盖官方登录状态。",
-                        "Token 明文存储仍是独立安全风险；迁移凭据前不要破坏当前可用组合。",
-                    ],
-                },
+                solution["request_authentication"],
+                {"source": "experimental_bearer_token", "status": "configured"},
             )
-            self.assertEqual(
-                report["provider"]["authentication_intent"],
-                {
-                    "combination": "official_login_retained_with_explicit_provider_token",
-                    "status": "acknowledged",
-                    "intentional": True,
-                    "acknowledgement_code": "provider.auth.openai_with_direct_token",
-                    "official_login_state": "retained_by_requires_openai_auth",
-                    "provider_request_authentication": "explicit_bearer_token_precedes_official_auth",
-                    "requires_openai_auth_config_path": "model_providers.custom.requires_openai_auth",
-                    "plaintext_token_risk": "independent_warning",
-                },
-            )
-            self.assertEqual(report["summary"]["unverified"], 0)
-            self.assertEqual(report["summary"]["acknowledged"], 1)
+            self.assertEqual(report["provider"]["authentication_intent"]["status"], "unverified")
+            self.assertEqual(report["summary"]["acknowledged"], 0)
 
     def test_keep_official_login_problem_reports_chatgpt_login_separately_from_provider_auth(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -647,6 +631,8 @@ class UserProblemGuideTests(unittest.TestCase):
                 str(root / "missing-system.toml"),
                 "--problem",
                 "keep-official-login",
+                "--acknowledge",
+                "provider.auth.openai_with_direct_token",
                 "--json",
                 extra_env={
                     "PATH": f"{bin_directory}{os.pathsep}{os.environ.get('PATH', '')}",
@@ -734,7 +720,7 @@ class UserProblemGuideTests(unittest.TestCase):
                 card["exact_targets"],
             )
 
-    def test_keep_official_login_problem_requires_auth_method_transition_instead_of_stacking_on_env_key(self) -> None:
+    def test_keep_official_login_problem_can_add_account_state_without_replacing_env_key(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             codex_home = root / "codex-home"
@@ -771,21 +757,25 @@ class UserProblemGuideTests(unittest.TestCase):
             self.assertEqual(
                 {
                     "status": solution["status"],
-                    "conflicting_auth_fields": solution["conflicting_auth_fields"],
+                    "request_authentication": solution["request_authentication"],
                     "actions": solution["actions"],
                 },
                 {
-                    "status": "needs_auth_method_transition",
-                    "conflicting_auth_fields": ["env_key"],
+                    "status": "needs_configuration",
+                    "request_authentication": {
+                        "source": "env_key",
+                        "status": "ready",
+                    },
                     "actions": [
-                        "不要把 requires_openai_auth 或 experimental_bearer_token 直接叠加到现有 env_key/auth 上。",
-                        "先备份配置并展示字段 diff；如果确认改用直接 Token，在同一次受控修改中移除 env_key/auth，再在 [model_providers.custom] 下设置 requires_openai_auth = true 和 experimental_bearer_token。",
-                        "修改后完全重启 Codex，分别验证官方登录、第三方模型请求和插件；Token 明文风险继续独立处理。",
+                        "把 requires_openai_auth = true 放在 [model_providers.custom] 下，不能放在 TOML 顶层。",
+                        "保留当前可用的第三方请求凭据；requires_openai_auth 可以与 env_key 或直接 Token 同时使用。",
+                        "单独确认 codex login status 显示 ChatGPT 登录，并保持该官方会话不要退出。",
+                        "不要在截图、报告或 Issue 中暴露 Token。",
                     ],
                 },
             )
 
-    def test_keep_official_login_problem_does_not_accept_dual_auth_stacked_on_env_key(self) -> None:
+    def test_keep_official_login_problem_reports_env_key_as_the_selected_credential(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             codex_home = root / "codex-home"
@@ -818,12 +808,16 @@ class UserProblemGuideTests(unittest.TestCase):
                 extra_env={"THIRD_PARTY_API_KEY": "test-only-placeholder"},
             )
 
-            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertEqual(result.returncode, 1, result.stderr)
             report = json.loads(result.stdout)
             solution = report["solutions"]["items"][0]
-            self.assertEqual(solution["status"], "needs_auth_method_transition")
-            self.assertEqual(solution["conflicting_auth_fields"], ["env_key"])
-            self.assertIn(
+            self.assertEqual(solution["status"], "configured_with_security_warning")
+            self.assertEqual(
+                solution["request_authentication"],
+                {"source": "env_key", "status": "ready"},
+            )
+            self.assertIn("第三方请求实际使用 env_key", solution["diagnosis"])
+            self.assertNotIn(
                 "provider.auth.multiple_methods",
                 [finding["code"] for finding in report["findings"]],
             )
@@ -883,7 +877,7 @@ class UserProblemGuideTests(unittest.TestCase):
                     "catalog_path": str((codex_home / "catalog.json").resolve()),
                     "model_slug": "vendor-model-v1",
                     "actions": [
-                        "保持顶层 model = \"vendor-model-v1\" 与 models[].slug 完全一致。",
+                        "保持顶层 model = \"vendor-model-v1\" 能按最长 slug 前缀命中预期条目。",
                         "在实际生效的模型目录条目中填写非空 display_name。",
                         "完全重启 Codex 并新建任务，旧任务可能继续显示旧名称。",
                     ],
@@ -1237,7 +1231,7 @@ class UserProblemGuideTests(unittest.TestCase):
                 },
             )
 
-    def test_plugins_problem_leads_with_disabled_integration_features(self) -> None:
+    def test_plugins_problem_leads_with_the_plugin_system_switch(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             codex_home = root / "codex-home"
@@ -1252,6 +1246,7 @@ class UserProblemGuideTests(unittest.TestCase):
                         'base_url = "https://api.example.invalid/v1"',
                         "",
                         "[features]",
+                        "plugins = false",
                         "apps = false",
                         "remote_plugin = false",
                     ]
@@ -1272,23 +1267,49 @@ class UserProblemGuideTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 1, result.stderr)
             report = json.loads(result.stdout)
-            self.assertEqual(
-                report["solutions"]["items"][0],
-                {
-                    "id": "plugins-or-skills-unavailable",
-                    "title": "恢复插件与 Skill",
-                    "status": "plugin_features_disabled",
-                    "diagnosis": "插件集成功能被配置关闭：features.apps = false、features.remote_plugin = false。切换 Provider 没有删除 Skill 安装，但官方插件和连接器可能无法加载。",
-                    "disabled_features": ["apps", "remote_plugin"],
-                    "actions": [
-                        "在用户级配置恢复所需 feature，完全重启 Codex 并新建任务。",
-                        "再在 Plugins/Settings 确认官方插件启用，并完成连接器或 MCP 授权。",
-                        "不要因为 CLI 清单失败而重装插件；先验证新任务是否实际出现目标工具。",
-                    ],
-                },
+            solution = report["solutions"]["items"][0]
+            self.assertEqual(solution["status"], "plugin_features_disabled")
+            self.assertEqual(solution["disabled_features"], ["plugins", "apps", "remote_plugin"])
+            self.assertIn("features.plugins = false 已关闭插件系统", solution["diagnosis"])
+            self.assertIn("[features].plugins", solution["actions"][0])
+
+    def test_plugins_problem_does_not_treat_apps_as_the_plugin_system_switch(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            codex_home = root / "codex-home"
+            codex_home.mkdir()
+            (codex_home / "config.toml").write_text(
+                "\n".join(
+                    [
+                        'model = "third-party-model"',
+                        'model_provider = "custom"',
+                        "",
+                        "[model_providers.custom]",
+                        'base_url = "https://api.example.invalid/v1"',
+                        "",
+                        "[features]",
+                        "apps = false",
+                    ]
+                ),
+                encoding="utf-8",
             )
 
-    def test_chrome_problem_treats_false_as_direct_tool_exposure_not_a_fault(self) -> None:
+            result = run_doctor(
+                "--codex-home",
+                str(codex_home),
+                "--system-config",
+                str(root / "missing-system.toml"),
+                "--no-command-checks",
+                "--problem",
+                "plugins-or-skills-unavailable",
+                "--json",
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            solution = json.loads(result.stdout)["solutions"]["items"][0]
+            self.assertNotEqual(solution["status"], "plugin_features_disabled")
+
+    def test_chrome_problem_treats_false_as_the_leading_compatibility_suspect_without_claiming_a_root_cause(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             codex_home = root / "codex-home"
@@ -1339,41 +1360,20 @@ class UserProblemGuideTests(unittest.TestCase):
             report = json.loads(result.stdout)
             self.assertEqual(
                 report["compatibility"]["symptom_assessments"][0]["assessment"],
-                "direct_namespace_branch_forced",
+                "deferred_search_disabled",
             )
-            self.assertNotIn(
+            self.assertIn(
                 "compat.chrome.supports_search_tool_false",
                 [finding["code"] for finding in report["findings"]],
             )
-            self.assertEqual(
-                report["solutions"]["items"][0],
-                {
-                    "id": "chrome-unavailable",
-                    "title": "恢复 Chrome 调用",
-                    "status": "direct_namespace_branch_runtime_unverified",
-                    "diagnosis": "按 2026-08-05 官方 Codex 源码，活动模型 supports_search_tool = false 会让 namespace 工具规划分支进入 Direct；这不能证明 Chrome 自身声明为 Direct 或已进入真实任务工具列表，因此该值本身不是故障证据。",
-                    "observed": {
-                        "supports_search_tool": False,
-                        "tool_mode": "code_mode_only",
-                        "use_responses_lite": False,
-                    },
-                    "evidence_scope": {
-                        "source": "official_codex_source",
-                        "as_of": "2026-08-05",
-                        "detected_codex_version": None,
-                        "namespace_tools_feature_state": "not_checked",
-                        "actual_tool_exposure": "runtime_unverified",
-                        "runtime_verification_required": True,
-                    },
-                    "actions": [
-                        "完全重启 Codex 并新建任务，确认新任务是否实际出现 Chrome 工具。",
-                        "工具未出现时，检查 Plugins/Settings、官方登录、Chrome Profile 和连接器授权，不要因为 CLI 清单失败而重装。",
-                        "工具已经出现但调用失败时，再检查 Chrome 扩展桥接、站点阻止规则和真实调用错误。",
-                    ],
-                },
-            )
+            solution = report["solutions"]["items"][0]
+            self.assertEqual(solution["status"], "deferred_search_disabled_suspect")
+            self.assertIn("Deferred 暴露会被移除", solution["diagnosis"])
+            self.assertIn("首要兼容性疑点", solution["diagnosis"])
+            self.assertIn("不是唯一根因", solution["diagnosis"])
+            self.assertEqual(solution["observed"]["supports_search_tool"], False)
 
-    def test_chrome_problem_prioritizes_disabled_app_integration_over_tool_exposure_mode(self) -> None:
+    def test_chrome_problem_prioritizes_the_disabled_plugin_system(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             codex_home = root / "codex-home"
@@ -1404,7 +1404,7 @@ class UserProblemGuideTests(unittest.TestCase):
                         'wire_api = "responses"',
                         "",
                         "[features]",
-                        "apps = false",
+                        "plugins = false",
                     ]
                 ),
                 encoding="utf-8",
@@ -1433,8 +1433,8 @@ class UserProblemGuideTests(unittest.TestCase):
                 },
                 {
                     "status": "plugin_features_disabled",
-                    "diagnosis": "features.apps = false 已关闭 App/连接器集成，这是 Chrome 能力缺失的更直接静态证据；supports_search_tool = false 仍是独立字段，不能单独确定真实工具列表。",
-                    "first_action": "先在用户级配置恢复 features.apps，完全重启 Codex 并新建任务。",
+                    "diagnosis": "features.plugins = false 已关闭插件系统，因此 Chrome 插件无法加载进新任务。这比模型目录兼容字段更直接。",
+                    "first_action": "在用户级配置把 [features].plugins 设为 true，或删除显式 false；完全重启 Codex 并新建任务。",
                     "supports_search_tool": False,
                 },
             )
@@ -1490,20 +1490,11 @@ class UserProblemGuideTests(unittest.TestCase):
             self.assertEqual(result.returncode, 1, result.stderr)
             report = json.loads(result.stdout)
             solution = report["solutions"]["items"][0]
-            self.assertEqual(
-                {
-                    "status": solution["status"],
-                    "diagnosis": solution["diagnosis"],
-                    "disabled_features": solution["disabled_features"],
-                },
-                {
-                    "status": "remote_plugin_directory_disabled_runtime_unverified",
-                    "diagnosis": "features.remote_plugin = false 可能使远程 Plugins Directory 无法加载，但不能证明已经安装的 Chrome 工具因此不可用；模型目录和真实工具列表仍需分开核验。",
-                    "disabled_features": ["remote_plugin"],
-                },
-            )
+            self.assertEqual(solution["status"], "runtime_verification_required")
+            self.assertNotIn("首要兼容性疑点", solution["diagnosis"])
+            self.assertIn("remote_plugin", solution["diagnosis"])
 
-    def test_chrome_problem_keeps_true_exposure_mode_runtime_dependent(self) -> None:
+    def test_chrome_problem_treats_true_as_deferred_eligible_but_still_runtime_unverified(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             codex_home = root / "codex-home"
@@ -1560,9 +1551,9 @@ class UserProblemGuideTests(unittest.TestCase):
                     "finding_codes": [finding["code"] for finding in report["findings"]],
                 },
                 {
-                    "assessment": "exposure_mode_runtime_dependent",
+                    "assessment": "deferred_exposure_eligible",
                     "next_step": "verify_namespace_tools_and_live_invocation",
-                    "finding_codes": ["compat.chrome.exposure_mode_unverified"],
+                    "finding_codes": [],
                 },
             )
             self.assertEqual(
@@ -1570,8 +1561,8 @@ class UserProblemGuideTests(unittest.TestCase):
                 {
                     "id": "chrome-unavailable",
                     "title": "恢复 Chrome 调用",
-                    "status": "exposure_mode_runtime_unverified",
-                    "diagnosis": "按 2026-08-05 官方 Codex 源码，supports_search_tool = true 只有在 namespace tools 同时启用时才允许 Deferred；否则仍可能走 Direct。单靠这个字段不能确定 Chrome 暴露路径或故障根因。",
+                    "status": "runtime_verification_required",
+                    "diagnosis": "supports_search_tool = true 会在 namespace tools 开启时允许 Deferred 暴露，但不能证明 Chrome 已声明、已加载、已授权或能够真实调用。",
                     "observed": {
                         "supports_search_tool": True,
                         "tool_mode": None,
@@ -1586,8 +1577,8 @@ class UserProblemGuideTests(unittest.TestCase):
                         "runtime_verification_required": True,
                     },
                     "actions": [
-                        "先在新任务确认是否出现 tool_search 和 Chrome 工具，再判断插件是否损坏。",
-                        "只有运行时证据确认实际采用 Deferred 且第三方 Provider 不支持该发现链路后，才在备份模型目录的前提下做受控实验，并逐项回归 Chrome、Skill 和其他插件。",
+                        "新建任务，确认 tool_search 和 Chrome 工具是否实际出现。",
+                        "Chrome 未出现时，先继续检查 features.plugins、Plugins/Settings、授权和 Chrome Profile，再考虑修改模型元数据。",
                         "不要修改顶层 web_search，也不要仅因 CLI 插件清单失败而重装插件。",
                     ],
                 },

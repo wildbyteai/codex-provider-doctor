@@ -13,15 +13,10 @@ ENGLISH_FINDINGS: dict[str, tuple[str, str, str]] = {
         "model_provider points to an ID that has no matching model_providers table.",
         "Add the provider table or select an existing provider ID.",
     ),
-    "provider.auth.openai_with_env_key": (
-        "OpenAI authentication will ignore the provider environment variable",
-        "This provider sets both requires_openai_auth = true and env_key; Codex ignores env_key in this combination.",
-        "For a provider-specific API key, remove or disable requires_openai_auth. Use true only for a proxy that actually expects OpenAI authentication.",
-    ),
     "provider.auth.multiple_methods": (
-        "The provider configures mutually exclusive authentication methods",
-        "A clear conflict was found: requires_openai_auth ignores env_key; env_key competes with experimental_bearer_token; command authentication cannot be combined with another provider authentication field.",
-        "Remove the explicit conflict. Do not automatically classify the version-sensitive requires_openai_auth plus experimental_bearer_token combination as the same error.",
+        "Provider command authentication conflicts with another authentication field",
+        "The auth table cannot coexist with env_key, experimental_bearer_token, or requires_openai_auth.",
+        "Keep command authentication or the other Provider authentication fields, not both.",
     ),
     "provider.auth.direct_token": (
         "A direct bearer token is present in the config file",
@@ -31,17 +26,17 @@ ENGLISH_FINDINGS: dict[str, tuple[str, str, str]] = {
     "provider.auth.openai_with_direct_token": (
         "The dual-authentication intent is unverified",
         "The active provider sets requires_openai_auth = true plus an explicit third-party token. This retains the official account state while the explicit token takes precedence for provider requests, but the doctor cannot infer user intent without confirmation.",
-        "When the user explicitly wants to keep the official sign-in, record it with --problem keep-official-login or --acknowledge provider.auth.openai_with_direct_token. Keep plaintext-token risk as a separate warning.",
+        "When the user explicitly confirms this direct-token design, record it with --acknowledge provider.auth.openai_with_direct_token. Keep plaintext-token risk as a separate warning.",
     ),
     "provider.auth.requires_openai_auth_misplaced": (
         "requires_openai_auth is in the wrong table",
         "A top-level requires_openai_auth value does not configure the active provider.",
-        "For the custom third-party dual-authentication design, move it under [model_providers.<active-id>]. Do not apply the pattern to the built-in OpenAI provider or stack it on an existing env_key/auth method.",
+        "Move it under [model_providers.<active-id>] when the custom Provider should keep official account state available. Evaluate the request credential separately.",
     ),
     "provider.auth.env_missing": (
         "The provider API key environment variable is not set",
-        "env_key names a variable, but that variable is absent or empty in the doctor process.",
-        "Set the variable in the environment that launches Codex, then restart Codex. Do not put the secret value in screenshots or reports.",
+        "env_key names a variable that is absent or empty. Because env_key has priority, requests fail instead of falling back to a direct token or official authentication.",
+        "Set the variable in the environment that launches Codex, or remove env_key only after confirming the replacement credential. Do not put the secret value in screenshots or reports.",
     ),
     "catalog.file_missing": (
         "The model catalog file is missing",
@@ -58,10 +53,10 @@ ENGLISH_FINDINGS: dict[str, tuple[str, str, str]] = {
         "The catalog could not be parsed.",
         "Fix the JSON syntax and rerun the doctor without sharing files that may contain secrets.",
     ),
-    "catalog.model_missing": (
-        "The active model is missing from the catalog",
-        "The effective model value does not match any models[].slug entry.",
-        "Make the model value and catalog slug match exactly, including case and version suffixes.",
+    "catalog.model_metadata_fallback": (
+        "The active model uses fallback metadata",
+        "No catalog slug matched by the longest-prefix rule, including the retry after removing the active Provider namespace. Codex does not block the request for this reason.",
+        "Add a matching prefix entry only when custom display or capability metadata is needed, then verify App Server and a real request separately.",
     ),
     "catalog.root_not_object": (
         "The model catalog root must be a JSON object",
@@ -75,8 +70,8 @@ ENGLISH_FINDINGS: dict[str, tuple[str, str, str]] = {
     ),
     "catalog.model_duplicate": (
         "The active model slug is duplicated in the catalog",
-        "More than one models entry matches the effective model value, so the active metadata is ambiguous.",
-        "Keep exactly one catalog entry for the active slug.",
+        "More than one same-length entry wins the longest-prefix lookup, so the doctor cannot select metadata reliably.",
+        "Keep one winning prefix entry or give the entries distinct slugs.",
     ),
     "catalog.display_name_unclear": (
         "The active model lacks a clear display name",
@@ -88,10 +83,10 @@ ENGLISH_FINDINGS: dict[str, tuple[str, str, str]] = {
         "The selected dated case recommends changing supports_search_tool or use_responses_lite. tool_mode is reviewed only when direct tools, skills, or Chrome show symptoms.",
         "Back up the catalog, review suggested_changes, and do not disable top-level web_search because of supports_search_tool. Restart Codex and test each tool surface separately after any edit.",
     ),
-    "compat.chrome.exposure_mode_unverified": (
-        "supports_search_tool = true does not determine Chrome exposure by itself",
-        "Under the official Codex source as of 2026-08-05, this field permits Deferred exposure only when namespace tools are also enabled; otherwise the Direct branch is used. Tool declarations and the live task tool list remain separate evidence.",
-        "Check namespace-tool capability, tool_search, and the Chrome tool in a new task on the installed Codex version. Only after runtime evidence confirms a deferred-discovery incompatibility should a backed-up catalog experiment be considered. Do not change top-level web_search or reinstall a plugin because the CLI inventory failed.",
+    "compat.chrome.supports_search_tool_false": (
+        "The model disables Deferred tool discovery",
+        "supports_search_tool = false disables search_tool_enabled. With namespace tools enabled, Deferred exposure is removed and only the plugin's declared Direct or Code paths remain. If Chrome depends on Deferred, this is the leading compatibility suspect, but not a unique root cause.",
+        "Verify the effective catalog entry, Chrome exposure evidence, the new-task tool list, and a live invocation. Only when those show a Deferred dependency should a backed-up supports_search_tool = true comparison be considered. Do not change top-level web_search or reinstall a plugin because the CLI inventory failed.",
     ),
     "compat.rule_version_differs": (
         "The selected compatibility rule was observed on a different Codex version",
@@ -145,8 +140,13 @@ ENGLISH_FINDINGS: dict[str, tuple[str, str, str]] = {
     ),
     "plugins.feature.apps_disabled": (
         "App integrations are disabled",
-        "features.apps = false disables app and connector integrations used by plugins.",
-        "Enable features.apps in a user-level config, restart Codex, and open a new task.",
+        "features.apps = false disables App and connector integrations, not every plugin, MCP server, or standalone Skill.",
+        "Enable features.apps only when the missing capability is an App or connector, then restart Codex and open a new task.",
+    ),
+    "plugins.feature.plugins_disabled": (
+        "The plugin system is disabled",
+        "features.plugins = false prevents plugin manifests and plugin-packaged tools or Skills from loading.",
+        "Enable features.plugins in user-level config, restart Codex, and open a new task.",
     ),
     "plugins.feature.remote_plugin_disabled": (
         "The remote plugin catalog is disabled",
@@ -325,25 +325,29 @@ def _finding_sort_key(item: dict[str, Any]) -> int:
         return 0
     if item.get("status") == "confirmed" and item.get("category") == "diagnostic":
         return 1
-    if item.get("code") == "plugins.feature.apps_disabled":
+    if item.get("code") == "plugins.feature.plugins_disabled":
         return 2
-    if item.get("code") == "plugins.feature.remote_plugin_disabled":
+    if item.get("code") == "compat.chrome.supports_search_tool_false":
         return 3
-    if item.get("code") == "compat.deepseek_direct_tools.mismatch":
+    if item.get("code") == "plugins.feature.apps_disabled":
         return 4
-    if item.get("severity") == "warning" and item.get("category") == "diagnostic":
+    if item.get("code") == "plugins.feature.remote_plugin_disabled":
         return 5
-    if item.get("severity") == "warning" and item.get("category") == "security":
+    if item.get("code") == "compat.deepseek_direct_tools.mismatch":
         return 6
-    if item.get("severity") == "warning":
+    if item.get("severity") == "warning" and item.get("category") == "diagnostic":
         return 7
-    if item.get("status") == "acknowledged":
+    if item.get("severity") == "warning" and item.get("category") == "security":
         return 8
-    if item.get("category") == "intent":
+    if item.get("severity") == "warning":
         return 9
-    if item.get("category") == "verification":
+    if item.get("status") == "acknowledged":
         return 10
-    return 11
+    if item.get("category") == "intent":
+        return 11
+    if item.get("category") == "verification":
+        return 12
+    return 13
 
 
 def _compatibility_reason(reason: Any, language: str) -> str:
@@ -370,15 +374,15 @@ def _compatibility_reason(reason: Any, language: str) -> str:
 def _symptom_assessment_label(assessment: Any, language: str) -> str:
     labels = {
         "en": {
-            "direct_namespace_branch_forced": "the catalog field forces the Direct namespace branch; live Chrome exposure is unverified",
-            "exposure_mode_runtime_dependent": "Direct versus Deferred remains runtime-dependent",
+            "deferred_search_disabled": "Deferred tool discovery is disabled; Chrome exposure still needs runtime verification",
+            "deferred_exposure_eligible": "Deferred exposure is eligible; live Chrome exposure is unverified",
             "not_indicated_by_static_field": "not indicated by this static field",
             "field_unavailable": "the catalog field is unavailable",
             "not_applicable": "not applicable to the selected model or provider",
         },
         "zh-CN": {
-            "direct_namespace_branch_forced": "该字段会让 namespace 分支进入 Direct；Chrome 实际暴露仍待核验",
-            "exposure_mode_runtime_dependent": "Direct 或 Deferred 仍取决于运行时条件",
+            "deferred_search_disabled": "Deferred 工具发现已关闭；Chrome 实际暴露仍待核验",
+            "deferred_exposure_eligible": "该字段允许进入 Deferred；Chrome 实际暴露仍待核验",
             "not_indicated_by_static_field": "该静态字段未指向兼容性问题",
             "field_unavailable": "模型目录字段不可用",
             "not_applicable": "不适用于当前模型或 Provider",
@@ -436,9 +440,7 @@ def _solution_status_label(status: Any, language: str) -> str:
             "plugin_features_disabled": "plugin features disabled",
             "skill_installation_not_found": "skill installation not found",
             "skill_installation_unverified": "skill installation only partially verified",
-            "direct_namespace_branch_runtime_unverified": "Chrome availability needs a live check",
-            "exposure_mode_runtime_unverified": "Chrome availability needs a live check",
-            "remote_plugin_directory_disabled_runtime_unverified": "remote plugin directory is off; impact needs confirmation",
+            "deferred_search_disabled_suspect": "the model disables Deferred tool discovery; leading compatibility suspect",
             "runtime_verification_required": "live verification required",
         },
         "zh-CN": {
@@ -461,9 +463,7 @@ def _solution_status_label(status: Any, language: str) -> str:
             "plugin_features_disabled": "插件能力被关闭",
             "skill_installation_not_found": "未发现本地 Skill",
             "skill_installation_unverified": "Skill 安装仅部分核验",
-            "direct_namespace_branch_runtime_unverified": "Chrome 是否可用待实际验证",
-            "exposure_mode_runtime_unverified": "Chrome 是否可用待实际验证",
-            "remote_plugin_directory_disabled_runtime_unverified": "远程插件目录已关闭；影响待确认",
+            "deferred_search_disabled_suspect": "模型关闭了 Deferred 工具发现；首要兼容性疑点",
             "runtime_verification_required": "需要实际验证",
         },
     }
@@ -481,7 +481,7 @@ SOLUTION_PRESENTATION: dict[str, dict[str, dict[str, Any]]] = {
             "goal": "Keep the official account signed in while third-party requests use the intended credential, with storage risk handled separately.",
             "actions": (
                 "Keep or confirm the official sign-in; do not overwrite the login cache.",
-                "Use one request-authentication method on a custom third-party Provider; back up first if an existing method must be migrated.",
+                "Set or keep requires_openai_auth = true under [model_providers.{provider_id}]. Keep the intended env_key or direct token; command auth requires a separate migration.",
                 "Test official sign-in, one third-party request, and one official-plugin action separately.",
             ),
             "verification": "All three checks pass independently; one passing check does not prove the others.",
@@ -489,12 +489,13 @@ SOLUTION_PRESENTATION: dict[str, dict[str, dict[str, Any]]] = {
         "plugins-or-skills-unavailable": {
             "controls": (
                 "Skill installation: local Skill directories.",
-                "Official plugin availability: Plugins/Settings and App integration switches.",
+                "Plugin loading: features.plugins plus Plugins/Settings.",
+                "Apps/connectors only: features.apps; the remote catalog only: features.remote_plugin.",
                 "Actual use: connector authorization plus the tool list loaded into a new task.",
             ),
             "goal": "Skills remain installed, official plugins are enabled and authorized, and the expected tools appear in a new task.",
             "actions": (
-                "Confirm the Skill installation and plugin enablement in the active Codex environment.",
+                "If features.plugins = false, set it to true or remove the explicit false; otherwise leave that switch unchanged and confirm the Skill installation.",
                 "Complete connector authorization, restart Codex, and open a new task.",
                 "Run one real action before reinstalling plugins or clearing caches.",
             ),
@@ -508,7 +509,7 @@ SOLUTION_PRESENTATION: dict[str, dict[str, dict[str, Any]]] = {
             ),
             "goal": "The catalog is correct, the request reaches the intended model, and Desktop shows the clearest label the current product supports.",
             "actions": (
-                "Correct the catalog only when the selected model does not match one entry or its display name is blank.",
+                "Correct the catalog only when the selected model has no intended longest-prefix match or its display name is blank.",
                 "When the catalog is already valid, stop editing JSON or clearing caches; use the config switcher, CLI, or separate Profiles.",
                 "Verify the actual model with a real request; treat an app patch as a separately approved experiment.",
             ),
@@ -530,15 +531,15 @@ SOLUTION_PRESENTATION: dict[str, dict[str, dict[str, Any]]] = {
         },
         "chrome-unavailable": {
             "controls": (
-                "App integration: feature switches and Plugins/Settings.",
+                "Plugin loading: features.plugins and Plugins/Settings; features.apps and remote_plugin have narrower scopes.",
                 "Model tool loading: selected-model capability metadata plus Codex tool-loading behavior.",
                 "Browser bridge: Chrome Profile, connector authorization, site rules, and the new-task tool list.",
             ),
             "goal": "The Chrome tool appears in a new task and one minimal real invocation succeeds.",
             "actions": (
-                "Confirm App integration, plugin enablement, connector authorization, and the correct Chrome Profile.",
-                "Open a new task and check whether the Chrome tool is actually present.",
-                "Run one real Chrome action before reinstalling anything or changing unrelated search settings.",
+                "Confirm features.plugins and Chrome enablement first; check features.apps only when the Chrome path uses an App/connector, then confirm authorization and the correct Chrome Profile.",
+                "If supports_search_tool = false and Chrome is still absent after the plugin checks, back up the catalog and compare true once; if it is already true, do not change it for this symptom alone.",
+                "Open a new task and run one real Chrome action before reinstalling anything or changing top-level web_search.",
             ),
             "verification": "The new-task tool list contains Chrome and one minimal smoke test succeeds.",
         },
@@ -553,7 +554,7 @@ SOLUTION_PRESENTATION: dict[str, dict[str, dict[str, Any]]] = {
             "goal": "官方账号保持登录，第三方请求使用预期凭据，凭据存储风险单独处理。",
             "actions": (
                 "保持或确认官方登录，不要覆盖登录缓存。",
-                "自定义第三方 Provider 只保留一种请求认证方式；已有方式需要迁移时先备份。",
+                "在 [model_providers.{provider_id}] 下设置或保留 requires_openai_auth = true；保留预期的 env_key 或直接 Token，命令认证 auth 需要单独迁移。",
                 "分别测试官方登录、一次第三方模型请求和一次官方插件调用。",
             ),
             "verification": "三项分别通过；其中一项成功不能代替另外两项。",
@@ -561,12 +562,13 @@ SOLUTION_PRESENTATION: dict[str, dict[str, dict[str, Any]]] = {
         "plugins-or-skills-unavailable": {
             "controls": (
                 "Skill 是否仍安装：由本地 Skill 目录控制。",
-                "官方插件是否可用：由 Plugins/Settings 和 App 集成开关控制。",
+                "插件是否加载：先看 features.plugins，再看 Plugins/Settings。",
+                "features.apps 只管 App/连接器，features.remote_plugin 只管远程插件目录。",
                 "是否真正能调用：由连接器授权和新任务加载到的工具列表控制。",
             ),
             "goal": "Skill 仍安装，官方插件已启用并授权，而且目标工具在新任务中实际出现。",
             "actions": (
-                "确认当前 Codex 环境中的 Skill 安装和插件启用状态。",
+                "如果 features.plugins = false，把它改为 true 或删除显式 false；否则保持该开关不动，再确认 Skill 安装状态。",
                 "完成连接器授权，完全重启 Codex，并新建任务。",
                 "先做一次真实调用，再考虑重装插件或清缓存。",
             ),
@@ -580,7 +582,7 @@ SOLUTION_PRESENTATION: dict[str, dict[str, dict[str, Any]]] = {
             ),
             "goal": "模型目录正确、真实请求进入目标模型，Desktop 显示当前版本能支持的最清楚名称。",
             "actions": (
-                "只有当前模型无法唯一匹配目录，或显示名称为空时，才修改模型目录。",
+                "只有当前模型没有命中预期的最长 slug 前缀，或显示名称为空时，才修改模型目录。",
                 "目录已经正确时，不再改 JSON 或反复清缓存；使用配置切换器、CLI 或独立 Profile。",
                 "用真实请求确认实际模型；应用补丁只能作为另行确认的实验方案。",
             ),
@@ -602,15 +604,15 @@ SOLUTION_PRESENTATION: dict[str, dict[str, dict[str, Any]]] = {
         },
         "chrome-unavailable": {
             "controls": (
-                "App 集成是否开启：由功能开关和 Plugins/Settings 控制。",
+                "插件是否能加载：先看 features.plugins 和 Plugins/Settings；apps、remote_plugin 只在各自范围内判断。",
                 "模型怎样加载工具：由模型能力声明和 Codex 的工具加载方式共同控制。",
                 "浏览器是否真正接通：由 Chrome Profile、连接器授权、站点限制和新任务工具列表控制。",
             ),
             "goal": "Chrome 工具在新任务中出现，并且一次最小真实调用成功。",
             "actions": (
-                "确认 App 集成、插件启用、连接器授权和正确的 Chrome Profile。",
-                "新建任务，确认 Chrome 工具是否真的出现。",
-                "先做一次真实 Chrome 操作，再考虑重装插件或修改无关搜索设置。",
+                "先确认 features.plugins 和 Chrome 插件已启用；只有 Chrome 走 App/连接器路径时才检查 features.apps，再核对授权和正确的 Chrome Profile。",
+                "如果 supports_search_tool = false，且完成插件检查后 Chrome 仍未出现，先备份模型目录，再只把该值改为 true 做一次对照；如果已经是 true，不要仅因本症状修改它。",
+                "新建任务并做一次真实 Chrome 操作；不要先重装插件，也不要修改顶层 web_search。",
             ),
             "verification": "新任务工具列表中出现 Chrome，并且一次最小烟雾测试成功。",
         },
@@ -648,6 +650,21 @@ def _solution_result(
                 else f"当前结论是“{status}”。当前使用内置 OpenAI Provider，不适用第三方双认证配置块；官方登录：{login_text}。"
             )
         requires_openai_auth = _value(provider.get("requires_openai_auth"), "unset")
+        request_authentication = item.get("request_authentication")
+        request_authentication = (
+            request_authentication
+            if isinstance(request_authentication, dict)
+            else {}
+        )
+        request_source = str(request_authentication.get("source") or "none")
+        request_status = str(request_authentication.get("status") or "not_configured")
+        request_text = {
+            ("env_key", "ready"): "env_key (available)",
+            ("env_key", "missing_no_fallback"): "env_key (missing; no fallback)",
+            ("experimental_bearer_token", "configured"): "direct token",
+            ("auth", "runtime_unverified"): "auth command (runtime unverified)",
+            ("official_auth", "runtime_unverified"): "official authentication (endpoint compatibility unverified)",
+        }.get((request_source, request_status), "not configured")
         direct_token = (
             "configured (value not read)"
             if provider.get("direct_bearer_token_configured") is True
@@ -659,6 +676,13 @@ def _solution_result(
                 if provider.get("direct_bearer_token_configured") is True
                 else "未配置"
             )
+            request_text = {
+                ("env_key", "ready"): "env_key（已注入）",
+                ("env_key", "missing_no_fallback"): "env_key（未注入，不会回退）",
+                ("experimental_bearer_token", "configured"): "直接 Token",
+                ("auth", "runtime_unverified"): "命令认证 auth（运行时未核验）",
+                ("official_auth", "runtime_unverified"): "官方认证（第三方端点兼容性未核验）",
+            }.get((request_source, request_status), "未配置")
         login_probe = auth.get("login_probe")
         login_method = auth.get("login_method")
         if language == "en":
@@ -669,6 +693,7 @@ def _solution_result(
             )
             return (
                 f"Status: {status}. requires_openai_auth = {requires_openai_auth}; "
+                f"selected request credential: {request_text}; "
                 f"direct provider token: {direct_token}; official sign-in: {login_text}."
             )
         login_text = (
@@ -678,6 +703,7 @@ def _solution_result(
         )
         return (
             f"当前结论是“{status}”。requires_openai_auth = {requires_openai_auth}；"
+            f"第三方请求实际使用：{request_text}；"
             f"第三方直接 Token：{direct_token}；官方登录：{login_text}。"
         )
 
@@ -685,16 +711,20 @@ def _solution_result(
         count = report["skills"].get("total")
         count_text = str(count) if isinstance(count, int) else ("not verified" if language == "en" else "未核验")
         features = report["plugins"].get("features", {})
+        plugins_feature = _value(
+            features.get("plugins"),
+            "unset" if language == "en" else "未设置",
+        )
         apps = _value(features.get("apps"), "unset" if language == "en" else "未设置")
         remote_plugin = _value(
             features.get("remote_plugin"),
             "unset" if language == "en" else "未设置",
         )
         return (
-            f"Status: {status}. Local Skills found: {count_text}; features.apps = {apps}; "
+            f"Status: {status}. Local Skills found: {count_text}; features.plugins = {plugins_feature}; features.apps = {apps}; "
             f"features.remote_plugin = {remote_plugin}; real plugin use still depends on a new task."
             if language == "en"
-            else f"当前结论是“{status}”。本地 Skill 数量：{count_text}；features.apps = {apps}；features.remote_plugin = {remote_plugin}；插件能否调用仍以新任务为准。"
+            else f"当前结论是“{status}”。本地 Skill 数量：{count_text}；features.plugins = {plugins_feature}；features.apps = {apps}；features.remote_plugin = {remote_plugin}；插件能否调用仍以新任务为准。"
         )
 
     if problem_id == "model-name-incorrect":
@@ -749,13 +779,27 @@ def _solution_result(
             "unset" if language == "en" else "未设置",
         )
         if language == "en":
-            return (
-                f"Status: {status}. supports_search_tool = {support_text}; this is a compatibility clue, "
-                "not a unique root cause. Confirm the plugin evidence, new-task tool list, and a live invocation separately."
+            effect = (
+                "Deferred tool discovery is disabled; this is the leading compatibility suspect, not a unique root cause"
+                if supports_search_tool is False
+                else "Deferred is eligible when namespace tools are enabled; the field alone does not explain a missing Chrome tool"
+                if supports_search_tool is True
+                else "the catalog does not describe the exposure mode"
             )
+            return (
+                f"Status: {status}. supports_search_tool = {support_text}; {effect}. "
+                "Confirm the plugin gate, new-task tool list, and a live invocation separately."
+            )
+        effect = (
+            "Deferred 工具发现已关闭；这是首要兼容性疑点，但不是唯一根因"
+            if supports_search_tool is False
+            else "namespace tools 开启时可进入 Deferred；该字段本身不能解释 Chrome 缺失"
+            if supports_search_tool is True
+            else "目录未说明工具暴露方式"
+        )
         return (
-            f"当前结论是“{status}”。supports_search_tool = {support_text}；这是兼容性线索，不是唯一根因。"
-            "仍需分别核对插件证据、新任务工具列表和真实调用。"
+            f"当前结论是“{status}”。supports_search_tool = {support_text}；{effect}。"
+            "仍需分别核对插件总开关、新任务工具列表和真实调用。"
         )
 
     summaries = {
@@ -864,7 +908,10 @@ def _login_probe_state(context: _HealthCheckContext) -> str:
     return context.text("not verified", "未核验")
 
 
-def _auth_exact_targets(context: _HealthCheckContext) -> list[dict[str, str]]:
+def _auth_exact_targets(
+    context: _HealthCheckContext,
+    item: dict[str, Any],
+) -> list[dict[str, str]]:
     provider = context.report.get("provider", {})
     auth = context.report.get("auth", {})
     cache_state = context.text(
@@ -909,6 +956,33 @@ def _auth_exact_targets(context: _HealthCheckContext) -> list[dict[str, str]]:
         )
     configured = context.text("configured", "已配置")
     not_configured = context.text("not configured", "未配置")
+    request_authentication = item.get("request_authentication")
+    request_authentication = (
+        request_authentication
+        if isinstance(request_authentication, dict)
+        else {}
+    )
+    source = str(request_authentication.get("source") or "none")
+    status = str(request_authentication.get("status") or "not_configured")
+    selected_credential = {
+        ("env_key", "ready"): context.text("env_key (available)", "env_key（已注入）"),
+        ("env_key", "missing_no_fallback"): context.text(
+            "env_key (missing; no fallback)",
+            "env_key（未注入；不会回退）",
+        ),
+        ("experimental_bearer_token", "configured"): context.text(
+            "experimental_bearer_token (value not read)",
+            "experimental_bearer_token（值未读取）",
+        ),
+        ("auth", "runtime_unverified"): context.text(
+            "auth command (runtime unverified)",
+            "auth 命令（运行时未核验）",
+        ),
+        ("official_auth", "runtime_unverified"): context.text(
+            "official authentication (endpoint compatibility unverified)",
+            "官方认证（第三方端点兼容性未核验）",
+        ),
+    }.get((source, status), context.text("not configured", "未配置"))
     return [
         context.target(
             context.config(f"{prefix}requires_openai_auth", fallback_prefix=prefix),
@@ -934,6 +1008,14 @@ def _auth_exact_targets(context: _HealthCheckContext) -> list[dict[str, str]]:
             context.config(f"{prefix}auth", fallback_prefix=prefix),
             f"{section}.auth",
             configured if provider.get("auth_command_configured") is True else not_configured,
+        ),
+        context.target(
+            context.config(f"{prefix}requires_openai_auth", fallback_prefix=prefix),
+            context.text(
+                "Selected third-party request credential",
+                "第三方请求实际使用",
+            ),
+            selected_credential,
         ),
         *common,
     ]
@@ -979,7 +1061,7 @@ def _plugins_exact_targets(context: _HealthCheckContext) -> list[dict[str, str]]
             f"features.{feature}",
             context.feature(feature),
         )
-        for feature in ("apps", "remote_plugin")
+        for feature in ("plugins", "apps", "remote_plugin")
     )
     inventory = context.report.get("plugins", {}).get("inventory_status")
     targets.extend(
@@ -1088,9 +1170,12 @@ def _model_exact_targets(context: _HealthCheckContext) -> list[dict[str, str]]:
         context.target(
             catalog_location,
             "models[].slug",
-            context.text(f"{slug} (unique match)", f"{slug}（唯一匹配）")
+            context.text(
+                f"{slug} (longest-prefix match)",
+                f"{slug}（最长前缀命中）",
+            )
             if slug is not None
-            else context.text("not uniquely matched", "未唯一匹配"),
+            else context.text("fallback metadata", "使用回退元数据"),
         ),
         context.target(
             catalog_location,
@@ -1202,7 +1287,7 @@ def _chrome_exact_targets(context: _HealthCheckContext) -> list[dict[str, str]]:
             f"features.{feature}",
             context.feature(feature),
         )
-        for feature in ("apps", "remote_plugin")
+        for feature in ("plugins", "apps", "remote_plugin")
     ]
     runtime_targets = [
         context.target(
@@ -1233,7 +1318,19 @@ def _chrome_exact_targets(context: _HealthCheckContext) -> list[dict[str, str]]:
     prefix = f"model_providers.{provider_id}."
     provider_location = context.config(f"{prefix}wire_api", fallback_prefix=prefix)
     catalog_location, selected = _catalog_context(context)
-    support = _value(selected.get("supports_search_tool"), context.text("unset", "未设置"))
+    supports_search_tool = selected.get("supports_search_tool")
+    if supports_search_tool is False:
+        support = context.text(
+            "false (Deferred removed; leading compatibility suspect, not sole cause)",
+            "false（Deferred 被移除；首要兼容性疑点，非唯一根因）",
+        )
+    elif supports_search_tool is True:
+        support = context.text(
+            "true (Deferred eligible with namespace tools; runtime verification still required)",
+            "true（namespace tools 开启时可进入 Deferred；仍需运行时验证）",
+        )
+    else:
+        support = context.text("unset", "未设置")
     return [
         context.target(
             provider_location,
@@ -1243,10 +1340,7 @@ def _chrome_exact_targets(context: _HealthCheckContext) -> list[dict[str, str]]:
         context.target(
             catalog_location,
             "models[].supports_search_tool",
-            context.text(
-                f"{support} (compatibility clue, not a unique root cause)",
-                f"{support}（兼容性线索，不是唯一根因）",
-            ),
+            support,
         ),
         context.target(
             catalog_location,
@@ -1274,7 +1368,7 @@ def _solution_exact_targets(
     context = _HealthCheckContext(report, language, codex_home, project_root)
     problem_id = str(item.get("id"))
     if problem_id == "keep-official-login":
-        return _auth_exact_targets(context)
+        return _auth_exact_targets(context, item)
     if problem_id == "plugins-or-skills-unavailable":
         return _plugins_exact_targets(context)
     if problem_id == "model-name-incorrect":
@@ -1300,6 +1394,33 @@ def _solution_presentation(
     details: bool,
 ) -> dict[str, Any]:
     problem_id = str(item.get("id"))
+    built_in_login = (
+        problem_id == "keep-official-login"
+        and report["provider"].get("id") == "openai"
+        and report["provider"].get("name") == "OpenAI (built-in)"
+    )
+    if built_in_login:
+        if language == "en":
+            return {
+                "controls": [
+                    "Official account state: the Codex sign-in session.",
+                    "Built-in OpenAI request authentication: managed by the official Provider.",
+                    "Plugin availability: verified separately in a new task and live invocation.",
+                ],
+                "goal": "The official ChatGPT/Codex sign-in is confirmed and official capabilities work without adding third-party Provider fields.",
+                "actions": list(item.get("actions", [])),
+                "verification": "codex login status confirms ChatGPT sign-in and one official capability works in a new task.",
+            }
+        return {
+            "controls": [
+                "官方账号是否还登录：由 Codex 自身登录会话控制。",
+                "内置 OpenAI 请求认证：由官方 Provider 管理。",
+                "插件是否可用：仍需在新任务和真实调用中单独确认。",
+            ],
+            "goal": "确认官方 ChatGPT/Codex 登录正常，并且无需添加第三方 Provider 字段即可使用官方能力。",
+            "actions": list(item.get("actions", [])),
+            "verification": "codex login status 确认 ChatGPT 登录，并在新任务中完成一次官方能力调用。",
+        }
     built_in_model = (
         problem_id == "model-name-incorrect"
         and report["provider"].get("id") == "openai"
@@ -1593,6 +1714,7 @@ def render_human(report: dict[str, Any], language: str, *, details: bool = False
                 "- auth.json contents: not read",
                 "",
                 "Plugins and Chrome",
+                f"- features.plugins: {_value(plugins.get('features', {}).get('plugins'), '(default)')}",
                 f"- Plugin CLI probe: {plugins['probe']}",
                 f"- Plugin inventory status: {plugins.get('inventory_status', 'unverified')}",
                 f"- Plugin inventory count: {_value(plugins['inventory_count'], 'not available')}",
@@ -1748,6 +1870,7 @@ def render_human(report: dict[str, Any], language: str, *, details: bool = False
             "- auth.json 内容：未读取",
             "",
             "插件与 Chrome",
+            f"- features.plugins：{_value(plugins.get('features', {}).get('plugins'), '默认值')}",
             f"- 插件 CLI 探针：{plugins['probe']}",
             f"- 插件清单核验状态：{plugins.get('inventory_status', 'unverified')}",
             f"- 插件总数：{_value(plugins['inventory_count'], '不可用')}",

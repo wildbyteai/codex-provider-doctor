@@ -6,7 +6,7 @@ Compatibility advice must be tied to an observed version and interface combinati
 
 The doctor does not automatically inspect the final Windows Desktop picker or the remote `available_models` response. It therefore never infers this defect from a valid catalog alone.
 
-When `--problem model-name-incorrect` finds an exact active slug match and a non-empty `display_name`, the JSON solution adds `windows_desktop_picker_reminder` with `automatic_detection: false`. The reminder becomes actionable only after manual evidence also confirms:
+When `--problem model-name-incorrect` finds the intended longest active slug-prefix match and a non-empty `display_name`, the JSON solution adds `windows_desktop_picker_reminder` with `automatic_detection: false`. Codex retries once after removing a single simple model namespace; if neither lookup matches, it uses fallback metadata rather than blocking the request. The reminder becomes actionable only after manual evidence also confirms:
 
 1. App Server `model/list` returns the active model.
 2. The Windows Desktop picker omits it or shows `Custom`, `Custom High/Max`, or incorrect metadata.
@@ -28,11 +28,11 @@ codex-provider-doctor --problem chrome-unavailable
 
 This check applies to any selected third-party `responses` provider; it is not limited to DeepSeek or to a dated compatibility rule. In the [Codex tool-planning source snapshot dated 2026-08-05](https://github.com/openai/codex/blob/main/codex-rs/core/src/tools/spec_plan.rs), `supports_search_tool` participates in a condition that also checks whether namespace tools are enabled. The doctor reads the selected catalog entry's actual value without treating it as the complete exposure switch:
 
-- `false`: the namespace-tool planning condition cannot take the Deferred branch, so the branch falls back to **Direct**. This does not prove that Chrome itself declares Direct exposure or appears in the live task tool list. The value is not fault evidence by itself.
-- `true`: **Deferred is only eligible** when namespace tools are also enabled; otherwise Direct remains possible. The field alone cannot determine Chrome exposure or a root cause.
+- `false`: `search_tool_enabled` is false. With namespace tools enabled, **Deferred** exposure is removed and only the plugin's declared **Direct** or **Code** paths remain. When Chrome is missing under a third-party Responses Provider, this is the leading static compatibility suspect, but it does not prove a unique root cause or reveal Chrome's own exposure declaration.
+- `true`: **Deferred is eligible** when namespace tools are enabled. The value by itself does not explain why Chrome is absent, loaded, authorized, or callable.
 - missing or non-Boolean: report that the static field is unavailable and keep the runtime cause unverified.
 
-The JSON report records this under `compatibility.symptom_assessments`. It deliberately provides no `suggested_changes`: the doctor distinguishes static catalog evidence, plugin-inventory evidence, and a real invocation. A live smoke test remains stronger than static configuration. Never infer or change top-level `web_search`, and never recommend reinstalling a plugin merely because `codex plugin list --json` failed.
+The JSON report records this under `compatibility.symptom_assessments`. It deliberately provides no automatic `suggested_changes`: the doctor distinguishes static catalog evidence, the plugin's declared exposure, plugin-inventory evidence, the new-task tool list, and a real invocation. Only when those checks show that Chrome depends on Deferred should a backed-up `supports_search_tool = true` comparison be proposed. A live smoke test remains stronger than static configuration. Never infer or change top-level `web_search`, and never recommend reinstalling a plugin merely because `codex plugin list --json` failed.
 
 Each assessment records the official-source date, the locally detected Codex version when available, the namespace-tools state as not checked, and `runtime_verification_required: true`. If the installed version was not detected or differs from the cited source snapshot, the branch inference remains dated static evidence rather than a claim about the user's live runtime.
 
