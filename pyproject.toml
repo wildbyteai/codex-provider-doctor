@@ -27,7 +27,7 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-build = ["pyinstaller==6.21.0"]
+build = ["pyinstaller==6.22.3"]
 
 [project.scripts]
 codex-provider-doctor = "codex_provider_doctor.cli:main"
